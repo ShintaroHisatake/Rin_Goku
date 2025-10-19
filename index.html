@@ -20,7 +20,7 @@
     const {useEffect, useMemo, useRef, useState} = React;
 
     // ========= ユーティリティ =========
-    const Modes = { READING:"READING", KANJI:"KANJI", PRACTICE:"PRACTICE" };
+    const Modes = { READING:"READING", KANJI:"KANJI", PRACTICE:"PRACTICE", WRITETEST:"WRITETEST" };
 
     const LS_KEY_SELECTED = "kanji-typing:selectedDatasets";
 
@@ -163,38 +163,83 @@
       return <KanjiTypingApp initialDB={db} onChangeDataset={()=>setDb([])} manifest={manifest} sel={sel} />;
     }
 
-    // ========= 既存アプリ（モード1/2/3）=========
+    // ========= アプリ本体 =========
     function KanjiTypingApp({ initialDB, onChangeDataset, manifest, sel }) {
       const [mode, setMode] = useState(Modes.READING);
       const [db, setDb]   = useState(initialDB);
-      const [order, setOrder] = useState(() => shuffle(db.map((_,i)=>i)));
+
+      // 出題順（モードにより変更）
+      const makeOrder = (m, list) => {
+        if (m === Modes.WRITETEST) return list.map((_,i)=>i); // 上から順
+        return shuffle(list.map((_,i)=>i));                   // 既存モードはランダム
+      };
+
+      const [order, setOrder] = useState(() => makeOrder(mode, db));
       const [idx, setIdx] = useState(0);
+
+      // 既存モード用ステート
       const [input, setInput] = useState("");
       const [status, setStatus] = useState("idle");
       const [streak, setStreak] = useState(0);
       const [cleared, setCleared] = useState(false);
       const [miss, setMiss] = useState(null);
+
+      // 書き取りテスト用ステート
+      const [revealedSet, setRevealedSet] = useState(()=>new Set()); // スペースで答えを見たindex集合（order上の相対index）
+      const [showAnswerNow, setShowAnswerNow] = useState(false);
+      const [finishedTest, setFinishedTest] = useState(false);
+
       const inputRef = useRef(null);
 
-      useEffect(()=>{ // DBが変わったときの初期化
-        setOrder(shuffle(db.map((_,i)=>i)));
+      // DB or モードが変わったとき初期化
+      useEffect(()=>{ 
+        setOrder(makeOrder(mode, db));
         setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
-      }, [db]);
+        setRevealedSet(new Set()); setShowAnswerNow(false); setFinishedTest(false);
+      }, [db, mode]);
 
       const current = useMemo(()=> db[order[idx]], [db, order, idx]);
       const total = db.length;
-      const goNext = () => setIdx(v => v+1>=order.length ? 0 : v+1);
 
-      useEffect(()=>{ setInput(""); setStatus("idle"); if(mode!==Modes.PRACTICE) inputRef.current?.focus(); }, [mode, idx]);
+      const goNext = () => {
+        if (mode === Modes.WRITETEST) {
+          setShowAnswerNow(false);
+          setIdx(v => {
+            if (v+1 >= order.length) {
+              setFinishedTest(true);
+              return v; // 末尾で止める
+            }
+            return v+1;
+          });
+        } else {
+          setIdx(v => v+1>=order.length ? 0 : v+1);
+        }
+      };
+
+      const goPrev = () => {
+        if (mode === Modes.WRITETEST) {
+          setShowAnswerNow(false);
+          setIdx(v => Math.max(0, v-1));
+        } else {
+          setIdx(v => v-1<0 ? order.length-1 : v-1);
+        }
+      };
+
+      useEffect(()=>{ 
+        setInput(""); setStatus("idle");
+        if(mode!==Modes.PRACTICE) inputRef.current?.focus();
+      }, [idx, mode]);
 
       const restartRound = () => {
-        setOrder(shuffle(db.map((_,i)=>i)));
+        setOrder(makeOrder(mode, db));
         setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
+        setRevealedSet(new Set()); setShowAnswerNow(false); setFinishedTest(false);
         if(mode!==Modes.PRACTICE) inputRef.current?.focus();
       };
 
+      // 既存モード：判定
       const checkAnswer = () => {
-        if (mode===Modes.PRACTICE) return;
+        if (mode===Modes.PRACTICE || mode===Modes.WRITETEST) return;
         const user = normalizeAnswer(input, mode);
         const ok = mode===Modes.READING
           ? user === normalizeAnswer(current.reading, mode)
@@ -209,18 +254,34 @@
         }
       };
 
-      const handleKeyDown = (e) => {
-        if (mode===Modes.PRACTICE) {
-          if (e.key===" " || e.key==="ArrowRight" || e.key==="Enter") { e.preventDefault(); goNext(); }
-          return;
-        }
-        if (e.key==="Enter") { e.preventDefault(); checkAnswer(); }
-      };
+      // キーハンドラ（グローバル）— モード4専用
+      useEffect(()=>{
+        if (mode !== Modes.WRITETEST) return;
+        const onKey = (e) => {
+          if (finishedTest) return;
+          if (e.key === "ArrowRight") { e.preventDefault(); goNext(); }
+          if (e.key === "ArrowLeft")  { e.preventDefault(); goPrev(); }
+          if (e.key === " ") {
+            e.preventDefault();
+            // スペースで答え表示＆不正解扱い
+            setShowAnswerNow(true);
+            setRevealedSet(prev => {
+              if (prev.has(idx)) return prev;
+              const n = new Set(prev); n.add(idx); return n;
+            });
+          }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+      }, [mode, idx, finishedTest]);
 
       const progress =
-        mode===Modes.PRACTICE ? Math.round(((idx+1)/total)*100) : Math.round((streak/total)*100);
+        mode===Modes.PRACTICE ? Math.round(((idx+1)/total)*100)
+        : mode===Modes.WRITETEST ? Math.round(((Math.min(idx+1,total))/total)*100)
+        : Math.round((streak/total)*100);
 
-      if (cleared && mode!==Modes.PRACTICE) {
+      // クリア画面（既存モード）
+      if (cleared && mode!==Modes.PRACTICE && mode!==Modes.WRITETEST) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
             <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
@@ -228,6 +289,72 @@
             <button className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" onClick={restartRound}>
               もう一度チャレンジ
             </button>
+          </div>
+        );
+      }
+
+      // モード4：結果画面
+      if (mode===Modes.WRITETEST && finishedTest) {
+        const wrongCount = revealedSet.size;
+        const correctCount = total - wrongCount;
+        const rate = total > 0 ? Math.round((correctCount/total)*100) : 0;
+        const wrongItems = Array.from(revealedSet).sort((a,b)=>a-b).map(i => db[order[i]]);
+        return (
+          <div className="min-h-screen p-6">
+            <div className="max-w-4xl mx-auto grid gap-6">
+              <header className="flex items-center justify-between">
+                <h1 className="text-2xl md:text-3xl font-bold">漢字書き取りテスト 結果</h1>
+                <div className="flex gap-2">
+                  <button className="px-3 py-2 rounded-xl border bg-white" onClick={()=>setFinishedTest(false)}>
+                    見直しに戻る
+                  </button>
+                  <button className="px-3 py-2 rounded-xl bg-slate-900 text-white" onClick={restartRound}>
+                    もう一度
+                  </button>
+                </div>
+              </header>
+
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="rounded-2xl border bg-white p-5 text-center">
+                  <div className="text-xs text-slate-500">総問題数</div>
+                  <div className="text-3xl font-extrabold mt-1">{total}</div>
+                </div>
+                <div className="rounded-2xl border bg-white p-5 text-center">
+                  <div className="text-xs text-slate-500">正答（答えを見なかった）</div>
+                  <div className="text-3xl font-extrabold mt-1 text-emerald-600">{correctCount}</div>
+                </div>
+                <div className="rounded-2xl border bg-white p-5 text-center">
+                  <div className="text-xs text-slate-500">不正解（スペースで答え表示）</div>
+                  <div className="text-3xl font-extrabold mt-1 text-rose-600">{wrongCount}</div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-5">
+                <div className="text-sm text-slate-500 mb-1">正答率</div>
+                <div className="text-4xl font-extrabold">{rate}%</div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-5">
+                <h2 className="text-lg font-bold mb-3">書けなかった漢字一覧</h2>
+                {wrongItems.length===0 ? (
+                  <p className="text-slate-600">なし！よくできました 🎉</p>
+                ) : (
+                  <ul className="grid gap-3">
+                    {wrongItems.map((it, i)=>(
+                      <li key={i} className="p-4 rounded-xl bg-slate-50 border">
+                        <div className="text-2xl font-extrabold">{it.term}</div>
+                        <div className="text-sm text-slate-600">読み：{it.reading}</div>
+                        <div className="text-sm text-slate-600">意味：{it.meaning}</div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <footer className="text-center text-xs text-slate-500">
+                <p>© {new Date().getFullYear()} 漢字タイピング</p>
+              </footer>
+            </div>
           </div>
         );
       }
@@ -242,11 +369,12 @@
                   aria-label="モード選択"
                   className="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"
                   value={mode}
-                  onChange={(e)=>{ setMode(e.target.value); restartRound(); }}
+                  onChange={(e)=>{ setMode(e.target.value); }}
                 >
                   <option value={Modes.READING}>モード1：漢字→読み</option>
                   <option value={Modes.KANJI}>モード2：意味→漢字</option>
                   <option value={Modes.PRACTICE}>モード3：漢字書き取り練習</option>
+                  <option value={Modes.WRITETEST}>モード4：漢字書き取りテスト</option>
                 </select>
                 <button className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={restartRound}>
                   リセット
@@ -262,9 +390,9 @@
             <div className="rounded-2xl border bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <span className="px-2 py-1 rounded-full bg-slate-100">
-                  {mode===Modes.PRACTICE ? "表示" : "問題"} {idx+1} / {total}
+                  {mode===Modes.PRACTICE ? "表示" : "問題"} {Math.min(idx+1, total)} / {total}
                 </span>
-                {mode!==Modes.PRACTICE && (
+                {mode!==Modes.PRACTICE && mode!==Modes.WRITETEST && (
                   <span className="px-2 py-1 rounded-full bg-slate-100">連続正解 {streak}</span>
                 )}
                 <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
@@ -275,7 +403,8 @@
             </div>
 
             <main className="rounded-2xl border bg-white p-6 shadow-sm">
-              {mode===Modes.PRACTICE ? (
+              {/* モード3：練習 */}
+              {mode===Modes.PRACTICE && (
                 <div className="grid gap-6 text-center">
                   <div>
                     <div className="text-sm font-medium text-slate-500 mb-1">漢字（お手本）</div>
@@ -295,71 +424,142 @@
                     </button>
                   </div>
                 </div>
-              ) : (
-                <>
-                  {mode===Modes.READING ? (
-                    <div className="grid gap-4">
-                      <div className="text-center">
-                        <div className="text-sm font-medium text-slate-500">漢字</div>
-                        <div className="text-4xl md:text-5xl font-bold tracking-wide mt-1">{current.term}</div>
-                      </div>
-                      <label className="grid gap-2">
-                        <span className="text-sm text-slate-600">読み（ひらがな／カタカナ可）</span>
-                        <input
-                          ref={inputRef} type="text" value={input}
-                          onChange={(e)=>setInput(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          disabled={status==="wrong" && !!miss}
-                          className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
-                            status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
-                          } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
-                          placeholder="れい：はくぶつかん"
-                          autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
-                        />
-                      </label>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4">
-                      <div className="text-center">
-                        <div className="text-sm font-medium text-slate-500">意味</div>
-                        <div className="text-xl md:text-2xl font-semibold tracking-wide mt-1">{current.meaning}</div>
-                      </div>
-                      <label className="grid gap-2">
-                        <span className="text-sm text-slate-600">漢字で入力</span>
-                        <input
-                          ref={inputRef} type="text" value={input}
-                          onChange={(e)=>setInput(e.target.value)}
-                          onKeyDown={handleKeyDown}
-                          disabled={status==="wrong" && !!miss}
-                          className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
-                            status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
-                          } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
-                          placeholder="れい：博物館"
-                          autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
-                        />
-                      </label>
-                    </div>
-                  )}
+              )}
 
-                  <div className="mt-5 flex items-center gap-3">
+              {/* モード1：漢字→読み */}
+              {mode===Modes.READING && (
+                <div className="grid gap-4">
+                  <div className="text-center">
+                    <div className="text-sm font-medium text-slate-500">漢字</div>
+                    <div className="text-4xl md:text-5xl font-bold tracking-wide mt-1">{current.term}</div>
+                  </div>
+                  <label className="grid gap-2">
+                    <span className="text-sm text-slate-600">読み（ひらがな／カタカナ可）</span>
+                    <input
+                      ref={inputRef} type="text" value={input}
+                      onChange={(e)=>setInput(e.target.value)}
+                      onKeyDown={(e)=>{ if (e.key==="Enter") { e.preventDefault(); checkAnswer(); } }}
+                      disabled={status==="wrong" && !!miss}
+                      className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                        status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                      } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
+                      placeholder="れい：はくぶつかん"
+                      autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
+                    />
+                  </label>
+                  <div className="mt-5">
                     <button className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
                       onClick={checkAnswer} disabled={status==="wrong" && !!miss}>
                       判定（Enter）
                     </button>
                     {status==="correct" && <span className="text-sm text-emerald-600 ml-2">正解！</span>}
                   </div>
+                </div>
+              )}
 
-                  <div className="mt-6 p-4 rounded-xl bg-slate-50 border text-sm text-slate-600">
+              {/* モード2：意味→漢字 */}
+              {mode===Modes.KANJI && (
+                <div className="grid gap-4">
+                  <div className="text-center">
+                    <div className="text-sm font-medium text-slate-500">意味</div>
+                    <div className="text-xl md:text-2xl font-semibold tracking-wide mt-1">{current.meaning}</div>
+                  </div>
+                  <label className="grid gap-2">
+                    <span className="text-sm text-slate-600">漢字で入力</span>
+                    <input
+                      ref={inputRef} type="text" value={input}
+                      onChange={(e)=>setInput(e.target.value)}
+                      onKeyDown={(e)=>{ if (e.key==="Enter") { e.preventDefault(); checkAnswer(); } }}
+                      disabled={status==="wrong" && !!miss}
+                      className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                        status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                      } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
+                      placeholder="れい：博物館"
+                      autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
+                    />
+                  </label>
+                  <div className="mt-5">
+                    <button className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                      onClick={checkAnswer} disabled={status==="wrong" && !!miss}>
+                      判定（Enter）
+                    </button>
+                    {status==="correct" && <span className="text-sm text-emerald-600 ml-2">正解！</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* モード4：漢字書き取りテスト */}
+              {mode===Modes.WRITETEST && !finishedTest && (
+                <div className="grid gap-6">
+                  <div className="grid gap-1 text-center">
+                    <div className="text-xs font-medium text-slate-500">読み</div>
+                    <div className="text-3xl md:text-4xl font-bold">{current.reading}</div>
+                  </div>
+                  <div className="grid gap-1 text-center">
+                    <div className="text-xs font-medium text-slate-500">意味</div>
+                    <div className="text-xl md:text-2xl font-semibold leading-relaxed">{current.meaning}</div>
+                  </div>
+
+                  <label className="grid gap-2">
+                    <span className="text-sm text-slate-600">（任意）漢字で入力してみよう</span>
+                    <input
+                      ref={inputRef} type="text" value={input}
+                      onChange={(e)=>setInput(e.target.value)}
+                      className="px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-4 focus:ring-slate-100"
+                      placeholder="ここに自分で書いてみる（採点はしません）"
+                      autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
+                    />
+                  </label>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50"
+                        onClick={goPrev}
+                        disabled={idx===0}
+                        title="前の問題（←）"
+                      >← 前の問題</button>
+
+                      <button
+                        className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                        onClick={goNext}
+                        title="次の問題（→）"
+                      >次の問題 →</button>
+                    </div>
+
+                    <button
+                      className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50"
+                      onClick={()=>{
+                        setShowAnswerNow(true);
+                        setRevealedSet(prev => {
+                          if (prev.has(idx)) return prev;
+                          const n = new Set(prev); n.add(idx); return n;
+                        });
+                      }}
+                      title="スペースキーでも表示されます"
+                    >答えを見る（Space）</button>
+                  </div>
+
+                  {showAnswerNow && (
+                    <div className="mt-4 p-6 rounded-2xl bg-amber-50 border-amber-200 border text-center">
+                      <div className="text-xs text-amber-700 mb-2">答え</div>
+                      <div className="text-6xl md:text-7xl font-extrabold tracking-wide text-amber-900">{current.term}</div>
+                    </div>
+                  )}
+
+                  <div className="mt-4 p-4 rounded-xl bg-slate-50 border text-sm text-slate-600">
                     <div className="flex flex-wrap gap-3 items-center">
-                      <span className="font-medium">ルール：</span>
-                      <span>全{total}問を <b>連続正解</b> でクリア。1問でも間違えたら最初から（順番は毎回ランダム）。</span>
+                      <span className="font-medium">操作：</span>
+                      <span>←/→：前後の問題移動</span>
+                      <span>Space：答えを表示（表示した問題は「書けなかった」と判定）</span>
                     </div>
                   </div>
-                </>
+                </div>
               )}
             </main>
 
-            {miss && mode!==Modes.PRACTICE && (
+            {/* 既存モード：不正解ダイアログ */}
+            {miss && mode!==Modes.PRACTICE && mode!==Modes.WRITETEST && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
                 <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
                   <div className="text-sm text-slate-500 mb-2">正解は</div>
