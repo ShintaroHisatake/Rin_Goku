@@ -1,0 +1,23 @@
+// db.js
+// ここに問題データだけをまとめます。必要に応じて増減してください。
+window.DB = [
+  { term: "暖かい", reading: "あたたかい", meaning: "温度がほどよくぬくい。気持ちがやわらぐさま。" },
+  { term: "人工", reading: "じんこう", meaning: "人がつくり出したもの。自然にできたものではない。" },
+  { term: "完成", reading: "かんせい", meaning: "すべてでき上がること。" },
+  { term: "博物館", reading: "はくぶつかん", meaning: "資料を集めて展示し、一般に公開する施設。" },
+  { term: "努力", reading: "どりょく", meaning: "目的のために力をつくすこと。" },
+  { term: "築く", reading: "きずく", meaning: "建物や施設をつくり上げる。また、組織や関係を作る。" },
+  { term: "降りる", reading: "おりる", meaning: "高いところや乗り物などから下へ行く。" },
+  { term: "高層", reading: "こうそう", meaning: "建物などの高さが非常に高いこと。" },
+  { term: "展望", reading: "てんぼう", meaning: "遠くの景色を見渡すこと。" },
+  { term: "規模", reading: "きぼ", meaning: "物事のおおきさや範囲。" },
+  { term: "照明", reading: "しょうめい", meaning: "明かりをともして照らすこと。また、その装置。" },
+  { term: "昇る", reading: "のぼる", meaning: "高いところへ上がる。" },
+  { term: "眺め", reading: "ながめ", meaning: "見える景色。" },
+  { term: "玄関", reading: "げんかん", meaning: "建物の出入り口で、人を迎え入れる場所。" },
+  { term: "収容", reading: "しゅうよう", meaning: "人や物を中に入れておさめること。" },
+  { term: "細工", reading: "さいく", meaning: "材料をこまかく加工してつくること。" },
+  { term: "開閉", reading: "かいへい", meaning: "開けたり閉めたりすること。" },
+  { term: "階段", reading: "かいだん", meaning: "段を上がったり下りたりして移動するための通路。" },
+  { term: "鉄筋", reading: "てっきん", meaning: "コンクリートを強くするために中に入れる鉄の棒。" }
+];
