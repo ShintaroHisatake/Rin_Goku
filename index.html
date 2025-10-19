@@ -56,13 +56,12 @@
 
     // ========= データ選択UI + アプリ =========
     function App() {
-      const [manifest, setManifest] = useState(null);         // [{id,label,path}]
-      const [sel, setSel] = useState([]);                     // 選択id[]
+      const [manifest, setManifest] = useState(null);
+      const [sel, setSel] = useState([]);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState("");
-      const [db, setDb] = useState([]);                       // 結合済みDB
+      const [db, setDb] = useState([]);
 
-      // 起動時：マニフェスト取得 + 選択復元
       useEffect(() => {
         (async () => {
           try {
@@ -70,14 +69,13 @@
             setManifest(m);
             const saved = JSON.parse(localStorage.getItem(LS_KEY_SELECTED) || "[]");
             const valid = Array.isArray(saved) ? saved.filter(id => m.some(e=>e.id===id)) : [];
-            setSel(valid.length ? valid : m.slice(0,1).map(e=>e.id)); // 既定で先頭一つ
+            setSel(valid.length ? valid : m.slice(0,1).map(e=>e.id));
           } catch (e) {
             setError("db-manifest.json を読み込めませんでした。配置とJSON構造を確認してください。");
           }
         })();
       }, []);
 
-      // データ読み込み
       const loadSelected = async () => {
         if (!manifest) return;
         if (sel.length===0) { setError("少なくとも1つ選択してください。"); return; }
@@ -110,7 +108,6 @@
         );
       }
 
-      // まだデータ選択・読み込み前の画面
       if (!manifest || db.length === 0) {
         return (
           <div className="max-w-3xl mx-auto p-6">
@@ -159,7 +156,6 @@
         );
       }
 
-      // 読み込み済みならゲーム本体へ
       return <KanjiTypingApp initialDB={db} onChangeDataset={()=>setDb([])} manifest={manifest} sel={sel} />;
     }
 
@@ -168,30 +164,28 @@
       const [mode, setMode] = useState(Modes.READING);
       const [db, setDb]   = useState(initialDB);
 
-      // 出題順（モードにより変更）
       const makeOrder = (m, list) => {
-        if (m === Modes.WRITETEST) return list.map((_,i)=>i); // 上から順
-        return shuffle(list.map((_,i)=>i));                   // 既存モードはランダム
+        if (m === Modes.WRITETEST) return list.map((_,i)=>i);
+        return shuffle(list.map((_,i)=>i));
       };
 
       const [order, setOrder] = useState(() => makeOrder(mode, db));
       const [idx, setIdx] = useState(0);
 
-      // 既存モード用ステート
+      // 既存モード用
       const [input, setInput] = useState("");
       const [status, setStatus] = useState("idle");
       const [streak, setStreak] = useState(0);
       const [cleared, setCleared] = useState(false);
       const [miss, setMiss] = useState(null);
 
-      // 書き取りテスト用ステート
-      const [revealedSet, setRevealedSet] = useState(()=>new Set()); // スペースで答えを見たindex集合（order上の相対index）
+      // 書き取りテスト用
+      const [revealedSet, setRevealedSet] = useState(()=>new Set()); // 答えを一度でも見た index を保持
       const [showAnswerNow, setShowAnswerNow] = useState(false);
       const [finishedTest, setFinishedTest] = useState(false);
 
       const inputRef = useRef(null);
 
-      // DB or モードが変わったとき初期化
       useEffect(()=>{ 
         setOrder(makeOrder(mode, db));
         setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
@@ -207,7 +201,7 @@
           setIdx(v => {
             if (v+1 >= order.length) {
               setFinishedTest(true);
-              return v; // 末尾で止める
+              return v;
             }
             return v+1;
           });
@@ -254,22 +248,31 @@
         }
       };
 
-      // キーハンドラ（グローバル）— モード4専用
+      // ▼▼ ここがトグル対応の中心 ▼▼
+      const toggleAnswer = () => {
+        setShowAnswerNow(prev => {
+          const next = !prev;
+          if (!prev) {
+            // 初めて表示する瞬間だけ「書けなかった」扱いに登録
+            setRevealedSet(prevSet => {
+              if (prevSet.has(idx)) return prevSet;
+              const n = new Set(prevSet);
+              n.add(idx);
+              return n;
+            });
+          }
+          return next;
+        });
+      };
+
+      // モード4：キー操作（← → Space）
       useEffect(()=>{
         if (mode !== Modes.WRITETEST) return;
         const onKey = (e) => {
           if (finishedTest) return;
           if (e.key === "ArrowRight") { e.preventDefault(); goNext(); }
           if (e.key === "ArrowLeft")  { e.preventDefault(); goPrev(); }
-          if (e.key === " ") {
-            e.preventDefault();
-            // スペースで答え表示＆不正解扱い
-            setShowAnswerNow(true);
-            setRevealedSet(prev => {
-              if (prev.has(idx)) return prev;
-              const n = new Set(prev); n.add(idx); return n;
-            });
-          }
+          if (e.key === " ") { e.preventDefault(); toggleAnswer(); }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
@@ -280,7 +283,6 @@
         : mode===Modes.WRITETEST ? Math.round(((Math.min(idx+1,total))/total)*100)
         : Math.round((streak/total)*100);
 
-      // クリア画面（既存モード）
       if (cleared && mode!==Modes.PRACTICE && mode!==Modes.WRITETEST) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
@@ -324,7 +326,7 @@
                   <div className="text-3xl font-extrabold mt-1 text-emerald-600">{correctCount}</div>
                 </div>
                 <div className="rounded-2xl border bg-white p-5 text-center">
-                  <div className="text-xs text-slate-500">不正解（スペースで答え表示）</div>
+                  <div className="text-xs text-slate-500">不正解（答えを表示）</div>
                   <div className="text-3xl font-extrabold mt-1 text-rose-600">{wrongCount}</div>
                 </div>
               </div>
@@ -488,7 +490,7 @@
                 </div>
               )}
 
-              {/* モード4：漢字書き取りテスト */}
+              {/* モード4：漢字書き取りテスト（トグル対応） */}
               {mode===Modes.WRITETEST && !finishedTest && (
                 <div className="grid gap-6">
                   <div className="grid gap-1 text-center">
@@ -529,15 +531,9 @@
 
                     <button
                       className="px-4 py-2 rounded-xl border bg-white hover:bg-slate-50"
-                      onClick={()=>{
-                        setShowAnswerNow(true);
-                        setRevealedSet(prev => {
-                          if (prev.has(idx)) return prev;
-                          const n = new Set(prev); n.add(idx); return n;
-                        });
-                      }}
-                      title="スペースキーでも表示されます"
-                    >答えを見る（Space）</button>
+                      onClick={toggleAnswer}
+                      title="スペースキーでも切り替えできます"
+                    >{showAnswerNow ? "答えを隠す（Space）" : "答えを見る（Space）"}</button>
                   </div>
 
                   {showAnswerNow && (
@@ -551,7 +547,7 @@
                     <div className="flex flex-wrap gap-3 items-center">
                       <span className="font-medium">操作：</span>
                       <span>←/→：前後の問題移動</span>
-                      <span>Space：答えを表示（表示した問題は「書けなかった」と判定）</span>
+                      <span>Space：答えを表示／隠す（※初回表示時に不正解として記録）</span>
                     </div>
                   </div>
                 </div>
