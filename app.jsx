@@ -1,0 +1,302 @@
+// app.jsx（type="text/babel" + data-presets="typescript,react" で読み込み）
+
+const { useEffect, useMemo, useRef, useState } = React;
+
+// =====================
+// 内蔵データベース
+// =====================
+const DB = [
+  { term: "暖かい", reading: "あたたかい", meaning: "温度がほどよくぬくい。気持ちがやわらぐさま。" },
+  { term: "人工", reading: "じんこう", meaning: "人がつくり出したもの。自然にできたものではない。" },
+  { term: "完成", reading: "かんせい", meaning: "すべてでき上がること。" },
+  { term: "博物館", reading: "はくぶつかん", meaning: "資料を集めて展示し、一般に公開する施設。" },
+  { term: "努力", reading: "どりょく", meaning: "目的のために力をつくすこと。" },
+  { term: "築く", reading: "きずく", meaning: "建物や施設をつくり上げる。また、組織や関係を作る。" },
+  { term: "降りる", reading: "おりる", meaning: "高いところや乗り物などから下へ行く。" },
+  { term: "高層", reading: "こうそう", meaning: "建物などの高さが非常に高いこと。" },
+  { term: "展望", reading: "てんぼう", meaning: "遠くの景色を見渡すこと。" },
+  { term: "規模", reading: "きぼ", meaning: "物事のおおきさや範囲。" },
+  { term: "照明", reading: "しょうめい", meaning: "明かりをともして照らすこと。また、その装置。" },
+  { term: "昇る", reading: "のぼる", meaning: "高いところへ上がる。" },
+  { term: "眺め", reading: "ながめ", meaning: "見える景色。" },
+  { term: "玄関", reading: "げんかん", meaning: "建物の出入り口で、人を迎え入れる場所。" },
+  { term: "収容", reading: "しゅうよう", meaning: "人や物を中に入れておさめること。" },
+  { term: "細工", reading: "さいく", meaning: "材料をこまかく加工してつくること。" },
+  { term: "開閉", reading: "かいへい", meaning: "開けたり閉めたりすること。" },
+  { term: "階段", reading: "かいだん", meaning: "段を上がったり下りたりして移動するための通路。" },
+  { term: "鉄筋", reading: "てっきん", meaning: "鉄でできた棒。建物のコンクリートを強くするために中に入れる材料。" }
+];
+
+// =====================
+// 定数・型
+// =====================
+const Modes = {
+  READING: "READING", // モード1：漢字→読み
+  KANJI: "KANJI",     // モード2：意味→漢字
+} as const;
+
+// 型注釈はBabel(typescript)が取り除くため、JSとして実行されます
+// type Mode = typeof Modes[keyof typeof Modes];
+// type Item = { term: string; reading: string; meaning: string };
+// type MissInfo = { item: Item; mode: Mode } | null;
+
+// =====================
+// ユーティリティ
+// =====================
+function hiraFromKana(input /**: string */) {
+  const trimmed = input.replace(/[\u3000]/g, " ").trim();
+  return trimmed.replace(/[\u30a1-\u30f6]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60)
+  );
+}
+
+function normalizeAnswer(input /**: string */, forMode /**: Mode */) {
+  if (forMode === Modes.READING) {
+    return hiraFromKana(input).replace(/\s+/g, "");
+  }
+  return input.replace(/[\u3000\s]/g, "").trim();
+}
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// =====================
+// メイン
+// =====================
+function KanjiTypingApp() {
+  const [mode, setMode] = useState(Modes.READING);
+  const [order, setOrder] = useState(() => shuffle(DB.map((_, i) => i))); // 全問ランダム順
+  const [idx, setIdx] = useState(0);              // 何問目か（order上の位置）
+  const [input, setInput] = useState("");        // 入力
+  const [status, setStatus] = useState("idle");  // "idle" | "correct" | "wrong"
+  const [streak, setStreak] = useState(0);        // 連続正解数（このラウンド）
+  const [cleared, setCleared] = useState(false);  // クリア画面表示
+  const [miss, setMiss] = useState(null); // ミス時の正解提示用
+  const inputRef = useRef(null);
+
+  const current = useMemo(() => DB[order[idx]], [order, idx]);
+  const total = DB.length;
+
+  useEffect(() => {
+    setInput("");
+    setStatus("idle");
+    inputRef.current?.focus();
+  }, [mode, idx]);
+
+  function restartRound() {
+    setOrder(shuffle(DB.map((_, i) => i)));
+    setIdx(0);
+    setInput("");
+    setStatus("idle");
+    setStreak(0);
+    setCleared(false);
+    setMiss(null);
+    inputRef.current?.focus();
+  }
+
+  function goNext() {
+    if (idx + 1 >= order.length) {
+      setIdx(0);
+    } else {
+      setIdx((v) => v + 1);
+    }
+  }
+
+  function checkAnswer() {
+    const user = normalizeAnswer(input, mode);
+    const ok = mode === Modes.READING
+      ? user === normalizeAnswer(current.reading, mode)
+      : user === normalizeAnswer(current.term, mode);
+
+    if (ok) {
+      const nextStreak = streak + 1;
+      const isLast = idx + 1 >= order.length;
+
+      setStatus("correct");
+      setStreak(nextStreak);
+      setInput("");
+
+      if (isLast && nextStreak === total) {
+        setCleared(true);
+        return;
+      }
+      setTimeout(() => { goNext(); }, 500);
+    } else {
+      setStatus("wrong");
+      setMiss({ item: current, mode });
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      checkAnswer();
+    }
+  }
+
+  function resetSession() {
+    restartRound();
+  }
+
+  const progress = Math.round((streak / total) * 100);
+
+  if (cleared) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
+        <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
+        <p className="text-lg mb-8">全{total}問を <span className="font-bold">連続正解</span> しました！</p>
+        <button
+          className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800"
+          onClick={resetSession}
+        >もう一度チャレンジ</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative min-h-screen bg-slate-50 text-slate-900 p-6">
+      <div className="max-w-3xl mx-auto grid gap-6">
+        <header className="flex items-center justify-between">
+          <h1 className="text-2xl md:text-3xl font-bold">漢字タイピング（モード選択）</h1>
+          <div className="flex items-center gap-2">
+            <select
+              aria-label="モード選択"
+              className="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"
+              value={mode}
+              onChange={(e) => {
+                setMode(e.target.value);
+                restartRound();
+              }}
+            >
+              <option value={Modes.READING}>モード1：漢字→読み</option>
+              <option value={Modes.KANJI}>モード2：意味→漢字</option>
+            </select>
+            <button
+              className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+              onClick={resetSession}
+            >リセット</button>
+          </div>
+        </header>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="px-2 py-1 rounded-full bg-slate-100">問題 {idx + 1} / {total}</span>
+            <span className="px-2 py-1 rounded-full bg-slate-100">連続正解 {streak}</span>
+            <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
+          </div>
+        </div>
+
+        <main className="rounded-2xl border bg-white p-6 shadow-sm">
+          {mode === Modes.READING ? (
+            <div className="grid gap-4">
+              <div className="text-center">
+                <div className="text-sm font-medium text-slate-500">漢字</div>
+                <div className="text-4xl md:text-5xl font-bold tracking-wide mt-1">{current.term}</div>
+              </div>
+              <label className="grid gap-2">
+                <span className="text-sm text-slate-600">読み（ひらがな／カタカナ可）</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={status === "wrong" && !!miss}
+                  className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                    status === "wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                  } ${status === "wrong" && !!miss ? "opacity-60 cursor-not-allowed" : ""}`}
+                  placeholder="れい：はくぶつかん"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <div className="text-center">
+                <div className="text-sm font-medium text-slate-500">意味</div>
+                <div className="text-xl md:text-2xl font-semibold tracking-wide mt-1">{current.meaning}</div>
+              </div>
+              <label className="grid gap-2">
+                <span className="text-sm text-slate-600">漢字で入力</span>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  disabled={status === "wrong" && !!miss}
+                  className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                    status === "wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                  } ${status === "wrong" && !!miss ? "opacity-60 cursor-not-allowed" : ""}`}
+                  placeholder="れい：博物館"
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+              onClick={checkAnswer}
+              disabled={status === "wrong" && !!miss}
+            >判定（Enter）</button>
+            {status === "correct" && (
+              <span className="text-sm text-emerald-600 ml-2">正解！</span>
+            )}
+          </div>
+
+          <div className="mt-6 p-4 rounded-xl bg-slate-50 border text-sm text-slate-600">
+            <div className="flex flex-wrap gap-3 items-center">
+              <span className="font-medium">ルール：</span>
+              <span>全{total}問を <b>連続正解</b> でクリア。1問でも間違えたら最初から（順番は毎回ランダム）。</span>
+            </div>
+          </div>
+        </main>
+
+        <footer className="text-center text-xs text-slate-500">
+          <p>© {new Date().getFullYear()} 漢字タイピング</p>
+        </footer>
+      </div>
+
+      {miss && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+          <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
+            <div className="text-sm text-slate-500 mb-2">正解は</div>
+            {miss.mode === Modes.READING ? (
+              <div>
+                <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.reading}</div>
+                <div className="text-base text-slate-600">（漢字：<span className="font-semibold">{miss.item.term}</span>）</div>
+              </div>
+            ) : (
+              <div>
+                <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.term}</div>
+                <div className="text-base text-slate-600">（意味：{miss.item.meaning}）</div>
+              </div>
+            )}
+
+            <div className="mt-8 flex items-center justify-center gap-3">
+              <button
+                className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                onClick={restartRound}
+                autoFocus
+              >再挑戦（最初から）</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
