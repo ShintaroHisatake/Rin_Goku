@@ -1,296 +1,369 @@
 <!doctype html>
 <html lang="ja">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>漢字タイピング（GitHub Pages）</title>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>漢字タイピング（GitHub Pages）</title>
 
-    <!-- Tailwind / React / Babel -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Tailwind / React / Babel -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <meta name="color-scheme" content="light only" />
-  </head>
-  <body class="bg-slate-50">
-    <div id="root" class="min-h-screen"></div>
+  <meta name="color-scheme" content="light only"/>
+</head>
+<body class="bg-slate-50">
+  <div id="root" class="min-h-screen"></div>
 
-    <!-- ★ データベース（window.DB） -->
-    <script src="./db.js"></script>
+  <script type="text/babel" data-presets="react">
+    const {useEffect, useMemo, useRef, useState} = React;
 
-    <!-- アプリ本体 -->
-    <script type="text/babel" data-presets="react">
-      const { useEffect, useMemo, useRef, useState } = React;
+    // ========= ユーティリティ =========
+    const Modes = { READING:"READING", KANJI:"KANJI", PRACTICE:"PRACTICE" };
 
-      // --- DB 読み込みチェック ---
-      if (!Array.isArray(window.DB)) {
-        const el = document.getElementById("root");
-        el.innerHTML = `
-          <div class="p-8 max-w-xl mx-auto">
-            <h1 class="text-2xl font-bold mb-4">データ読み込みエラー</h1>
-            <p class="text-slate-600">db.js が見つからないか、window.DB が配列ではありません。<br/>
-            リポジトリ直下に <code>db.js</code> を置き、<code>window.DB = [ ... ];</code> の形式にしてください。</p>
-          </div>`;
-        throw new Error("DB not loaded");
+    const LS_KEY_SELECTED = "kanji-typing:selectedDatasets";
+
+    const fetchJson = async (path) => {
+      const res = await fetch(path, { cache: "no-store" });
+      if (!res.ok) throw new Error(`${path} の取得に失敗（${res.status}）`);
+      return await res.json();
+    };
+
+    const uniqByTerm = (items) => {
+      const map = new Map();
+      for (const it of items) map.set(it.term, it); // 後勝ち
+      return Array.from(map.values());
+    };
+
+    const shuffle = (arr) => {
+      const a = [...arr];
+      for (let i=a.length-1;i>0;i--) {
+        const j = Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
       }
-      const DB = window.DB;
+      return a;
+    };
 
-      // --- モード定義（★ PRACTICEを追加） ---
-      const Modes = { READING: "READING", KANJI: "KANJI", PRACTICE: "PRACTICE" };
+    const hiraFromKana = (s) =>
+      s.replace(/[\u3000]/g," ").trim()
+       .replace(/[\u30a1-\u30f6]/g, ch => String.fromCharCode(ch.charCodeAt(0)-0x60));
 
-      // --- ユーティリティ ---
-      function hiraFromKana(input) {
-        const trimmed = input.replace(/[\u3000]/g, " ").trim();
-        return trimmed.replace(/[\u30a1-\u30f6]/g, ch =>
-          String.fromCharCode(ch.charCodeAt(0) - 0x60)
+    const normalizeAnswer = (input, mode) => {
+      if (mode===Modes.READING) return hiraFromKana(input).replace(/\s+/g,"");
+      return input.replace(/[\u3000\s]/g,"").trim();
+    };
+
+    // ========= データ選択UI + アプリ =========
+    function App() {
+      const [manifest, setManifest] = useState(null);         // [{id,label,path}]
+      const [sel, setSel] = useState([]);                     // 選択id[]
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+      const [db, setDb] = useState([]);                       // 結合済みDB
+
+      // 起動時：マニフェスト取得 + 選択復元
+      useEffect(() => {
+        (async () => {
+          try {
+            const m = await fetchJson("./db-manifest.json");
+            setManifest(m);
+            const saved = JSON.parse(localStorage.getItem(LS_KEY_SELECTED) || "[]");
+            const valid = Array.isArray(saved) ? saved.filter(id => m.some(e=>e.id===id)) : [];
+            setSel(valid.length ? valid : m.slice(0,1).map(e=>e.id)); // 既定で先頭一つ
+          } catch (e) {
+            setError("db-manifest.json を読み込めませんでした。配置とJSON構造を確認してください。");
+          }
+        })();
+      }, []);
+
+      // データ読み込み
+      const loadSelected = async () => {
+        if (!manifest) return;
+        if (sel.length===0) { setError("少なくとも1つ選択してください。"); return; }
+        setError(""); setLoading(true);
+        try {
+          const files = manifest.filter(m => sel.includes(m.id));
+          const all = [];
+          for (const f of files) {
+            const arr = await fetchJson(f.path);
+            if (!Array.isArray(arr)) throw new Error(`${f.path} は配列ではありません`);
+            all.push(...arr);
+          }
+          const merged = uniqByTerm(all);
+          if (merged.length === 0) throw new Error("選択したデータが空でした。");
+          setDb(merged);
+          localStorage.setItem(LS_KEY_SELECTED, JSON.stringify(sel));
+        } catch (e) {
+          setError(e.message || String(e));
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      if (error) {
+        return (
+          <div className="max-w-3xl mx-auto p-6">
+            <h1 className="text-2xl font-bold mb-3">読み込みエラー</h1>
+            <p className="text-red-600 whitespace-pre-wrap">{error}</p>
+          </div>
         );
       }
-      function normalizeAnswer(input, forMode) {
-        if (forMode === Modes.READING) return hiraFromKana(input).replace(/\s+/g, "");
-        return input.replace(/[\u3000\s]/g, "").trim();
-      }
-      function shuffle(arr) {
-        const a = [...arr];
-        for (let i = a.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [a[i], a[j]] = [a[j], a[i]];
-        }
-        return a;
-      }
 
-      function KanjiTypingApp() {
-        const [mode, setMode] = useState(Modes.READING);
-        const [order, setOrder] = useState(() => shuffle(DB.map((_, i) => i)));
-        const [idx, setIdx] = useState(0);
-        const [input, setInput] = useState("");
-        const [status, setStatus] = useState("idle"); // "idle" | "correct" | "wrong"
-        const [streak, setStreak] = useState(0);
-        const [cleared, setCleared] = useState(false);
-        const [miss, setMiss] = useState(null);
-        const inputRef = useRef(null);
-
-        const current = useMemo(() => DB[order[idx]], [order, idx]);
-        const total = DB.length;
-
-        // 次へ（常に安全）
-        function goNext() {
-          setIdx(v => (v + 1 >= order.length ? 0 : v + 1));
-        }
-
-        useEffect(() => {
-          // モード・問題切替時
-          setInput("");
-          setStatus("idle");
-          if (mode !== Modes.PRACTICE) inputRef.current?.focus();
-        }, [mode, idx]);
-
-        function restartRound() {
-          setOrder(shuffle(DB.map((_, i) => i)));
-          setIdx(0);
-          setInput("");
-          setStatus("idle");
-          setStreak(0);
-          setCleared(false);
-          setMiss(null);
-          if (mode !== Modes.PRACTICE) inputRef.current?.focus();
-        }
-
-        // 判定（モード1/2のみ）
-        function checkAnswer() {
-          if (mode === Modes.PRACTICE) return; // 練習では判定しない
-          const user = normalizeAnswer(input, mode);
-          const ok = mode === Modes.READING
-            ? user === normalizeAnswer(current.reading, mode)
-            : user === normalizeAnswer(current.term, mode);
-
-          if (ok) {
-            const next = streak + 1;
-            setStatus("correct");
-            setStreak(next);
-            setInput("");
-            if (idx + 1 >= order.length && next === total) {
-              setCleared(true);
-              return;
-            }
-            setTimeout(goNext, 500);
-          } else {
-            setStatus("wrong");
-            setMiss({ item: current, mode });
-          }
-        }
-
-        // キー操作：Enter=判定、Space/→=次へ（練習モード）
-        function handleKeyDown(e) {
-          if (mode === Modes.PRACTICE) {
-            if (e.key === " " || e.key === "ArrowRight" || e.key === "Enter") {
-              e.preventDefault();
-              goNext();
-            }
-            return;
-          }
-          if (e.key === "Enter") {
-            e.preventDefault();
-            checkAnswer();
-          }
-        }
-
-        const progress =
-          mode === Modes.PRACTICE
-            ? Math.round(((idx + 1) / total) * 100)
-            : Math.round((streak / total) * 100);
-
-        // クリア画面（モード1/2用）
-        if (cleared && mode !== Modes.PRACTICE) {
-          return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
-              <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
-              <p className="text-lg mb-8">全{total}問を <span className="font-bold">連続正解</span> しました！</p>
-              <button className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" onClick={restartRound}>
-                もう一度チャレンジ
-              </button>
-            </div>
-          );
-        }
-
+      // まだデータ選択・読み込み前の画面
+      if (!manifest || db.length === 0) {
         return (
-          <div className="relative min-h-screen bg-slate-50 text-slate-900 p-6">
-            <div className="max-w-3xl mx-auto grid gap-6">
-              <header className="flex items-center justify-between">
-                <h1 className="text-2xl md:text-3xl font-bold">漢字タイピング（モード選択）</h1>
-                <div className="flex items-center gap-2">
-                  <select
-                    aria-label="モード選択"
-                    className="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"
-                    value={mode}
-                    onChange={(e) => { setMode(e.target.value); restartRound(); }}
-                  >
-                    <option value={Modes.READING}>モード1：漢字→読み</option>
-                    <option value={Modes.KANJI}>モード2：意味→漢字</option>
-                    <option value={Modes.PRACTICE}>モード3：漢字書き取り練習</option>
-                  </select>
-                  <button className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={restartRound}>
-                    リセット
-                  </button>
+          <div className="max-w-3xl mx-auto p-6">
+            <h1 className="text-2xl md:text-3xl font-bold mb-4">データセットを選択</h1>
+            <div className="grid gap-4 rounded-2xl border bg-white p-6 shadow-sm">
+              {manifest ? (
+                <div className="grid gap-3">
+                  {manifest.map(m => (
+                    <label key={m.id} className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        className="size-4"
+                        checked={sel.includes(m.id)}
+                        onChange={(e) => {
+                          setSel(prev => e.target.checked ? [...prev,m.id] : prev.filter(x=>x!==m.id));
+                        }}
+                      />
+                      <span className="font-medium">{m.label}</span>
+                      <span className="text-xs text-slate-500">({m.path})</span>
+                    </label>
+                  ))}
                 </div>
-              </header>
+              ) : (
+                <p className="text-slate-600">db-manifest.json を取得中…</p>
+              )}
 
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="px-2 py-1 rounded-full bg-slate-100">
-                    {mode === Modes.PRACTICE ? "表示" : "問題"} {idx + 1} / {total}
-                  </span>
-                  {mode !== Modes.PRACTICE && (
-                    <span className="px-2 py-1 rounded-full bg-slate-100">連続正解 {streak}</span>
-                  )}
-                  <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
-                </div>
+              <div className="flex items-center gap-3">
+                <button
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white disabled:opacity-50"
+                  onClick={loadSelected}
+                  disabled={loading || !manifest}
+                >
+                  {loading ? "読み込み中…" : "選択したデータを読み込む"}
+                </button>
+                {sel.length>0 && (
+                  <span className="text-sm text-slate-600">選択：{sel.length}件</span>
+                )}
               </div>
 
-              <main className="rounded-2xl border bg-white p-6 shadow-sm">
-                {mode === Modes.PRACTICE ? (
-                  /* ★ モード3：書き取り練習（判定なし、次へで進む） */
-                  <div className="grid gap-6 text-center">
-                    <div>
-                      <div className="text-sm font-medium text-slate-500 mb-1">漢字（お手本）</div>
-                      <div className="text-6xl md:text-7xl font-extrabold tracking-wide mt-1">{current.term}</div>
-                    </div>
-                    <div className="grid gap-2">
-                      <div className="text-sm font-medium text-slate-500">読み</div>
-                      <div className="text-3xl md:text-4xl font-bold">{current.reading}</div>
-                    </div>
-                    <div className="grid gap-2">
-                      <div className="text-sm font-medium text-slate-500">意味</div>
-                      <div className="text-2xl md:text-3xl font-semibold leading-relaxed">{current.meaning}</div>
-                    </div>
-                    <div className="mt-4 flex items-center justify-center gap-3">
-                      <button
-                        className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
-                        onClick={goNext}
-                      >次へ（Space / → / Enter）</button>
-                    </div>
-                  </div>
-                ) : (
-                  /* 既存：モード1/2 */
-                  <>
-                    {mode === Modes.READING ? (
-                      <div className="grid gap-4">
-                        <div className="text-center">
-                          <div className="text-sm font-medium text-slate-500">漢字</div>
-                          <div className="text-4xl md:text-5xl font-bold tracking-wide mt-1">{current.term}</div>
-                        </div>
-                        <label className="grid gap-2">
-                          <span className="text-sm text-slate-600">読み（ひらがな／カタカナ可）</span>
-                          <input
-                            ref={inputRef}
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            disabled={status === "wrong" && !!miss}
-                            className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
-                              status === "wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
-                            } ${status === "wrong" && !!miss ? "opacity-60 cursor-not-allowed" : ""}`}
-                            placeholder="れい：はくぶつかん"
-                            autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
-                          />
-                        </label>
-                      </div>
-                    ) : (
-                      <div className="grid gap-4">
-                        <div className="text-center">
-                          <div className="text-sm font-medium text-slate-500">意味</div>
-                          <div className="text-xl md:text-2xl font-semibold tracking-wide mt-1">{current.meaning}</div>
-                        </div>
-                        <label className="grid gap-2">
-                          <span className="text-sm text-slate-600">漢字で入力</span>
-                          <input
-                            ref={inputRef}
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={handleKeyDown}
-                            disabled={status === "wrong" && !!miss}
-                            className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
-                              status === "wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
-                            } ${status === "wrong" && !!miss ? "opacity-60 cursor-not-allowed" : ""}`}
-                            placeholder="れい：博物館"
-                            autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
-                          />
-                        </label>
-                      </div>
-                    )}
+              <p className="text-sm text-slate-500">
+                ※ マニフェストに項目を追加すれば、新しいJSONファイルも選べます。  
+                フォーマット：<code>[&#123;term, reading, meaning&#125;,...]</code>
+              </p>
+            </div>
+          </div>
+        );
+      }
 
-                    <div className="mt-5 flex items-center gap-3">
-                      <button
-                        className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
-                        onClick={checkAnswer}
-                        disabled={status === "wrong" && !!miss}
-                      >判定（Enter）</button>
-                      {status === "correct" && (<span className="text-sm text-emerald-600 ml-2">正解！</span>)}
-                    </div>
+      // 読み込み済みならゲーム本体へ
+      return <KanjiTypingApp initialDB={db} onChangeDataset={()=>setDb([])} manifest={manifest} sel={sel} />;
+    }
 
-                    <div className="mt-6 p-4 rounded-xl bg-slate-50 border text-sm text-slate-600">
-                      <div className="flex flex-wrap gap-3 items-center">
-                        <span className="font-medium">ルール：</span>
-                        <span>全{total}問を <b>連続正解</b> でクリア。1問でも間違えたら最初から（順番は毎回ランダム）。</span>
-                      </div>
-                    </div>
-                  </>
+    // ========= 既存アプリ（モード1/2/3）=========
+    function KanjiTypingApp({ initialDB, onChangeDataset, manifest, sel }) {
+      const [mode, setMode] = useState(Modes.READING);
+      const [db, setDb]   = useState(initialDB);
+      const [order, setOrder] = useState(() => shuffle(db.map((_,i)=>i)));
+      const [idx, setIdx] = useState(0);
+      const [input, setInput] = useState("");
+      const [status, setStatus] = useState("idle");
+      const [streak, setStreak] = useState(0);
+      const [cleared, setCleared] = useState(false);
+      const [miss, setMiss] = useState(null);
+      const inputRef = useRef(null);
+
+      useEffect(()=>{ // DBが変わったときの初期化
+        setOrder(shuffle(db.map((_,i)=>i)));
+        setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
+      }, [db]);
+
+      const current = useMemo(()=> db[order[idx]], [db, order, idx]);
+      const total = db.length;
+      const goNext = () => setIdx(v => v+1>=order.length ? 0 : v+1);
+
+      useEffect(()=>{ setInput(""); setStatus("idle"); if(mode!==Modes.PRACTICE) inputRef.current?.focus(); }, [mode, idx]);
+
+      const restartRound = () => {
+        setOrder(shuffle(db.map((_,i)=>i)));
+        setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
+        if(mode!==Modes.PRACTICE) inputRef.current?.focus();
+      };
+
+      const checkAnswer = () => {
+        if (mode===Modes.PRACTICE) return;
+        const user = normalizeAnswer(input, mode);
+        const ok = mode===Modes.READING
+          ? user === normalizeAnswer(current.reading, mode)
+          : user === normalizeAnswer(current.term, mode);
+        if (ok) {
+          const next = streak+1;
+          setStatus("correct"); setStreak(next); setInput("");
+          if (idx+1>=order.length && next===total) { setCleared(true); return; }
+          setTimeout(goNext, 500);
+        } else {
+          setStatus("wrong"); setMiss({ item: current, mode });
+        }
+      };
+
+      const handleKeyDown = (e) => {
+        if (mode===Modes.PRACTICE) {
+          if (e.key===" " || e.key==="ArrowRight" || e.key==="Enter") { e.preventDefault(); goNext(); }
+          return;
+        }
+        if (e.key==="Enter") { e.preventDefault(); checkAnswer(); }
+      };
+
+      const progress =
+        mode===Modes.PRACTICE ? Math.round(((idx+1)/total)*100) : Math.round((streak/total)*100);
+
+      if (cleared && mode!==Modes.PRACTICE) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
+            <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
+            <p className="text-lg mb-8">全{total}問を <span className="font-bold">連続正解</span> しました！</p>
+            <button className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" onClick={restartRound}>
+              もう一度チャレンジ
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="relative min-h-screen bg-slate-50 text-slate-900 p-6">
+          <div className="max-w-4xl mx-auto grid gap-6">
+            <header className="flex flex-wrap items-center justify-between gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold">漢字タイピング</h1>
+              <div className="flex items-center gap-2">
+                <select
+                  aria-label="モード選択"
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"
+                  value={mode}
+                  onChange={(e)=>{ setMode(e.target.value); restartRound(); }}
+                >
+                  <option value={Modes.READING}>モード1：漢字→読み</option>
+                  <option value={Modes.KANJI}>モード2：意味→漢字</option>
+                  <option value={Modes.PRACTICE}>モード3：漢字書き取り練習</option>
+                </select>
+                <button className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={restartRound}>
+                  リセット
+                </button>
+                <button
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50"
+                  onClick={onChangeDataset}
+                  title="データセット選択に戻る"
+                >データ変更</button>
+              </div>
+            </header>
+
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="px-2 py-1 rounded-full bg-slate-100">
+                  {mode===Modes.PRACTICE ? "表示" : "問題"} {idx+1} / {total}
+                </span>
+                {mode!==Modes.PRACTICE && (
+                  <span className="px-2 py-1 rounded-full bg-slate-100">連続正解 {streak}</span>
                 )}
-              </main>
-
-              <footer className="text-center text-xs text-slate-500">
-                <p>© ${new Date().getFullYear()} 漢字タイピング</p>
-              </footer>
+                <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
+              </div>
+              <div className="mt-3 text-xs text-slate-500">
+                使用中データ：{sel.join(", ")}
+              </div>
             </div>
 
-            {/* ミス時の大きな正解表示（★ 練習モードでは非表示） */}
-            {miss && mode !== Modes.PRACTICE && (
+            <main className="rounded-2xl border bg-white p-6 shadow-sm">
+              {mode===Modes.PRACTICE ? (
+                <div className="grid gap-6 text-center">
+                  <div>
+                    <div className="text-sm font-medium text-slate-500 mb-1">漢字（お手本）</div>
+                    <div className="text-6xl md:text-7xl font-extrabold tracking-wide mt-1">{current.term}</div>
+                  </div>
+                  <div className="grid gap-2">
+                    <div className="text-sm font-medium text-slate-500">読み</div>
+                    <div className="text-3xl md:text-4xl font-bold">{current.reading}</div>
+                  </div>
+                  <div className="grid gap-2">
+                    <div className="text-sm font-medium text-slate-500">意味</div>
+                    <div className="text-2xl md:text-3xl font-semibold leading-relaxed">{current.meaning}</div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-center gap-3">
+                    <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={()=>setIdx(v => v+1>=order.length ? 0 : v+1)}>
+                      次へ（Space / → / Enter）
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {mode===Modes.READING ? (
+                    <div className="grid gap-4">
+                      <div className="text-center">
+                        <div className="text-sm font-medium text-slate-500">漢字</div>
+                        <div className="text-4xl md:text-5xl font-bold tracking-wide mt-1">{current.term}</div>
+                      </div>
+                      <label className="grid gap-2">
+                        <span className="text-sm text-slate-600">読み（ひらがな／カタカナ可）</span>
+                        <input
+                          ref={inputRef} type="text" value={input}
+                          onChange={(e)=>setInput(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          disabled={status==="wrong" && !!miss}
+                          className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                            status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                          } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
+                          placeholder="れい：はくぶつかん"
+                          autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      <div className="text-center">
+                        <div className="text-sm font-medium text-slate-500">意味</div>
+                        <div className="text-xl md:text-2xl font-semibold tracking-wide mt-1">{current.meaning}</div>
+                      </div>
+                      <label className="grid gap-2">
+                        <span className="text-sm text-slate-600">漢字で入力</span>
+                        <input
+                          ref={inputRef} type="text" value={input}
+                          onChange={(e)=>setInput(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          disabled={status==="wrong" && !!miss}
+                          className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
+                            status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
+                          } ${status==="wrong" && !!miss ? "opacity-60 cursor-not-allowed":""}`}
+                          placeholder="れい：博物館"
+                          autoCapitalize="none" autoComplete="off" autoCorrect="off" spellCheck={false}
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex items-center gap-3">
+                    <button className="px-4 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                      onClick={checkAnswer} disabled={status==="wrong" && !!miss}>
+                      判定（Enter）
+                    </button>
+                    {status==="correct" && <span className="text-sm text-emerald-600 ml-2">正解！</span>}
+                  </div>
+
+                  <div className="mt-6 p-4 rounded-xl bg-slate-50 border text-sm text-slate-600">
+                    <div className="flex flex-wrap gap-3 items-center">
+                      <span className="font-medium">ルール：</span>
+                      <span>全{total}問を <b>連続正解</b> でクリア。1問でも間違えたら最初から（順番は毎回ランダム）。</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </main>
+
+            {miss && mode!==Modes.PRACTICE && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
                 <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
                   <div className="text-sm text-slate-500 mb-2">正解は</div>
-                  {miss.mode === Modes.READING ? (
+                  {miss.mode===Modes.READING ? (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.reading}</div>
                       <div className="text-base text-slate-600">（漢字：<span className="font-semibold">{miss.item.term}</span>）</div>
@@ -309,14 +382,19 @@
                 </div>
               </div>
             )}
+
+            <footer className="text-center text-xs text-slate-500">
+              <p>© {new Date().getFullYear()} 漢字タイピング</p>
+            </footer>
           </div>
-        );
-      }
+        </div>
+      );
+    }
 
-      const root = ReactDOM.createRoot(document.getElementById("root"));
-      root.render(<KanjiTypingApp />);
-    </script>
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App/>);
+  </script>
 
-    <noscript>このアプリを使うにはJavaScriptを有効にしてください。</noscript>
-  </body>
+  <noscript>このアプリを使うにはJavaScriptを有効にしてください。</noscript>
+</body>
 </html>
