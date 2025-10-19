@@ -21,9 +21,7 @@ window.DB = [
   { term: "開閉", reading: "かいへい", meaning: "開けたり閉めたりすること。" },
   { term: "階段", reading: "かいだん", meaning: "段を上がったり下りたりして移動するための通路。" },
   { term: "鉄筋", reading: "てっきん", meaning: "コンクリートを強くするために中に入れる鉄の棒。" },
-  
   //9回
- 
   { term: "管理人", reading: "かんりにん", meaning: "建物などの管理を担当する人。" },
   { term: "一戸建て", reading: "いっこだて", meaning: "一つの建物が独立して建っている住宅。" },
   { term: "縁側", reading: "えんがわ", meaning: "和風家屋で、部屋の外側にある板敷きの通路部分。" },
@@ -44,6 +42,4 @@ window.DB = [
   { term: "適否", reading: "てきひ", meaning: "適しているかどうか。よいか悪いかの判断。" },
   { term: "是非", reading: "ぜひ", meaning: "よいことと悪いこと。正しいかどうかの判断。また、強い希望を表すときにも使う。" },
   { term: "敬う", reading: "うやまう", meaning: "相手を尊敬し、礼を尽くす。" }
-];
-
 ];
