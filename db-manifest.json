@@ -1,3 +1,5 @@
 [
-  { "id": "NN4-3-8",   "label": "日能研４年生III-第8回", "path": "db-nn4-3-8.json" }
+  { "id": "NN4-3-8",   "label": "日能研４年生III-第8回", "path": "db-nn4-3-8.json" },
+   { "id": "NN4-3-9",   "label": "日能研４年生III-第9回", "path": "db-nn4-3-9.json" }
+
 ]
