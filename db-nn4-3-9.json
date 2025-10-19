@@ -1,0 +1,22 @@
+[
+  { "term": "管理人", "reading": "かんりにん", "meaning": "建物などの管理をする人" },
+  { "term": "一戸建", "reading": "いっこだて", "meaning": "一つの家が独立して建っている住宅" },
+  { "term": "縁側", "reading": "えんがわ", "meaning": "家の外側にある板張りの細長い通路" },
+  { "term": "家路", "reading": "いえじ", "meaning": "家へ帰る道" },
+  { "term": "帰路", "reading": "きろ", "meaning": "帰る道・帰り道" },
+  { "term": "捨てる", "reading": "すてる", "meaning": "不要なものを投げたり置いて去ること" },
+  { "term": "羽目", "reading": "はめ", "meaning": "困った状況・立場" },
+  { "term": "障子", "reading": "しょうじ", "meaning": "木の枠に紙をはった引き戸" },
+  { "term": "来訪", "reading": "らいほう", "meaning": "たずねて来ること" },
+  { "term": "裏庭", "reading": "うらにわ", "meaning": "家の裏にある庭" },
+  { "term": "貯蔵", "reading": "ちょぞう", "meaning": "物をためておくこと" },
+  { "term": "節約", "reading": "せつやく", "meaning": "むだを省いて倹約すること" },
+  { "term": "適否", "reading": "てきひ", "meaning": "適当か不適当かということ" },
+  { "term": "是非", "reading": "ぜひ", "meaning": "よいことと悪いこと。賛成と反対。" },
+  { "term": "住宅地", "reading": "じゅうたくち", "meaning": "家やマンションが多く建っている地域" },
+  { "term": "郊外", "reading": "こうがい", "meaning": "都市のまわりにある地域" },
+  { "term": "敬われる", "reading": "うやまわれる", "meaning": "尊敬される" },
+  { "term": "平屋建て", "reading": "ひらやだて", "meaning": "二階のない一階建ての家" },
+  { "term": "私信", "reading": "ししん", "meaning": "個人的な手紙" },
+  { "term": "牧場", "reading": "ぼくじょう", "meaning": "牛や馬を飼うための草地" }
+]
