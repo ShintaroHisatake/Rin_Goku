@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>漢字タイピング3（GitHub Pages）</title>
+  <title>漢字タイピング（GitHub Pages）</title>
 
   <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -164,17 +164,15 @@
       const [mode, setMode] = useState(Modes.READING);
       const [db, setDb]   = useState(initialDB);
 
-      // 並び：モード4は上から順、他はシャッフル（※モード1はターン毎に制御）
+      // 並び：モード4は上から順、他はシャッフル（※モード1/2はターン毎に別管理）
       const makeOrder = (m, list) => (m === Modes.WRITETEST ? list.map((_,i)=>i) : shuffle(list.map((_,i)=>i)));
 
       const [order, setOrder] = useState(() => makeOrder(mode, db));
       const [idx, setIdx] = useState(0);
 
-      // ===== 既存モード(2)用（連続正解ルール維持） =====
+      // ===== 既存（モード3/4用） =====
       const [input, setInput] = useState("");
       const [status, setStatus] = useState("idle");
-      const [streak, setStreak] = useState(0);
-      const [cleared, setCleared] = useState(false);
       const [miss, setMiss] = useState(null);
 
       // ===== モード4（ラウンド方式）用 =====
@@ -187,12 +185,21 @@
 
       // ===== モード1（新仕様）用 =====
       const [rPhase, setRPhase] = useState("ALL"); // "ALL" | "RETRY"
-      const [rAllOrder, setRAllOrder] = useState(()=> shuffle(db.map((_,i)=>i))); // ターン(1)
+      const [rAllOrder, setRAllOrder] = useState(()=> shuffle(db.map((_,i)=>i)));
       const [rAllPos, setRAllPos] = useState(0);
-      const [rWrongSet, setRWrongSet] = useState(()=> new Set()); // ターン(1)で間違えた index(絶対)
-      const [rRetryPool, setRRetryPool] = useState([]); // ターン(2)：配列（絶対index）
+      const [rWrongSet, setRWrongSet] = useState(()=> new Set());
+      const [rRetryPool, setRRetryPool] = useState([]);
       const [rRetryPos, setRRetryPos] = useState(0);
-      const [rCleared, setRCleared] = useState(false); // モード1クリア
+      const [rCleared, setRCleared] = useState(false);
+
+      // ===== モード2（新仕様）用 =====
+      const [kPhase, setKPhase] = useState("ALL"); // "ALL" | "RETRY"
+      const [kAllOrder, setKAllOrder] = useState(()=> shuffle(db.map((_,i)=>i)));
+      const [kAllPos, setKAllPos] = useState(0);
+      const [kWrongSet, setKWrongSet] = useState(()=> new Set());
+      const [kRetryPool, setKRetryPool] = useState([]);
+      const [kRetryPos, setKRetryPos] = useState(0);
+      const [kCleared, setKCleared] = useState(false);
 
       const inputRef = useRef(null);
 
@@ -200,7 +207,7 @@
       useEffect(()=>{ 
         const nextOrder = makeOrder(mode, db);
         setOrder(nextOrder);
-        setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
+        setIdx(0); setInput(""); setStatus("idle"); setMiss(null);
 
         // モード4初期化
         if (mode === Modes.WRITETEST) {
@@ -212,7 +219,7 @@
           setShowAnswerNow(false);
         }
 
-        // モード1初期化（新仕様）
+        // モード1初期化
         if (mode === Modes.READING) {
           setRPhase("ALL");
           setRAllOrder(shuffle(db.map((_,i)=>i)));
@@ -222,19 +229,32 @@
           setRRetryPos(0);
           setRCleared(false);
         }
+
+        // モード2初期化
+        if (mode === Modes.KANJI) {
+          setKPhase("ALL");
+          setKAllOrder(shuffle(db.map((_,i)=>i)));
+          setKAllPos(0);
+          setKWrongSet(new Set());
+          setKRetryPool([]);
+          setKRetryPos(0);
+          setKCleared(false);
+        }
       }, [db, mode]);
 
-      // 現在問題の index & データ
+      // 現在問題の index
       const currentIndex =
         mode===Modes.WRITETEST ? wtPool[wtPos] :
         mode===Modes.READING && rPhase==="ALL" ? rAllOrder[rAllPos] :
         mode===Modes.READING && rPhase==="RETRY" ? rRetryPool[rRetryPos] :
+        mode===Modes.KANJI && kPhase==="ALL" ? kAllOrder[kAllPos] :
+        mode===Modes.KANJI && kPhase==="RETRY" ? kRetryPool[kRetryPos] :
         order[idx];
 
       const current = useMemo(()=> db[currentIndex], [db, currentIndex]);
       const total = db.length;
 
-      // === 既存モード(2)の移動 ===
+      // === モード3（練習）/ その他の移動 ===
       const goNextNormal = () => setIdx(v => v+1>=order.length ? 0 : v+1);
       const goPrevNormal = () => setIdx(v => v-1<0 ? order.length-1 : v-1);
 
@@ -252,12 +272,12 @@
       useEffect(()=>{ 
         setInput(""); setStatus("idle");
         if(mode!==Modes.PRACTICE) inputRef.current?.focus();
-      }, [idx, wtPos, mode, rAllPos, rRetryPos, rPhase]);
+      }, [idx, wtPos, mode, rAllPos, rRetryPos, rPhase, kAllPos, kRetryPos, kPhase]);
 
       const restartRound = () => {
         const nextOrder = makeOrder(mode, db);
         setOrder(nextOrder);
-        setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
+        setIdx(0); setInput(""); setStatus("idle"); setMiss(null);
 
         // モード4リセット
         setWtPool(db.map((_,i)=>i));
@@ -276,26 +296,31 @@
         setRRetryPos(0);
         setRCleared(false);
 
+        // モード2リセット
+        setKPhase("ALL");
+        setKAllOrder(shuffle(db.map((_,i)=>i)));
+        setKAllPos(0);
+        setKWrongSet(new Set());
+        setKRetryPool([]);
+        setKRetryPos(0);
+        setKCleared(false);
+
         if(mode!==Modes.PRACTICE) inputRef.current?.focus();
       };
 
       // ====== 判定 ======
-      // モード1（新仕様）専用判定
+      // モード1（漢字→読み）
       const checkReading = () => {
         const user = normalizeAnswer(input, Modes.READING);
         const ok = user === normalizeAnswer(current.reading, Modes.READING);
 
         if (rPhase === "ALL") {
           if (ok) {
-            // 次へ
             const nextPos = rAllPos + 1;
             if (nextPos >= rAllOrder.length) {
-              // ターン(1)終了
               if (rWrongSet.size === 0) {
-                // クリア
-                setRCleared(true);
+                setRCleared(true); // ターン①全問正解でクリア
               } else {
-                // ターン(2)へ
                 const pool = Array.from(rWrongSet);
                 setRRetryPool(pool);
                 setRRetryPos(0);
@@ -305,7 +330,6 @@
               setRAllPos(nextPos);
             }
           } else {
-            // 間違いを記録しつつ、答えダイアログを表示。閉じたら次へ
             setRWrongSet(prev => {
               if (prev.has(currentIndex)) return prev;
               const n = new Set(prev); n.add(currentIndex); return n;
@@ -314,11 +338,11 @@
             setStatus("wrong");
           }
         } else {
-          // rPhase === "RETRY"
+          // ターン②
           if (ok) {
             const nextPos = rRetryPos + 1;
             if (nextPos >= rRetryPool.length) {
-              // ターン(2)完了 → ターン(1)に戻る
+              // ターン②完了 → 再びターン①へ
               setRPhase("ALL");
               setRAllOrder(shuffle(db.map((_,i)=>i)));
               setRAllPos(0);
@@ -329,24 +353,59 @@
               setRRetryPos(nextPos);
             }
           } else {
-            // ミスしたらターン(2)の最初から
             setMiss({ item: current, mode: Modes.READING, readingPhase: "RETRY" });
             setStatus("wrong");
           }
         }
       };
 
-      // 既存モード(2)の判定（従来仕様）
+      // モード2（意味→漢字）— 新仕様
       const checkKanji = () => {
         const user = normalizeAnswer(input, Modes.KANJI);
         const ok = user === normalizeAnswer(current.term, Modes.KANJI);
-        if (ok) {
-          const next = streak+1;
-          setStatus("correct"); setStreak(next); setInput("");
-          if (idx+1>=order.length && next===total) { setCleared(true); return; }
-          setTimeout(goNextNormal, 500);
+
+        if (kPhase === "ALL") {
+          if (ok) {
+            const nextPos = kAllPos + 1;
+            if (nextPos >= kAllOrder.length) {
+              if (kWrongSet.size === 0) {
+                setKCleared(true); // ターン①全問正解でクリア
+              } else {
+                const pool = Array.from(kWrongSet);
+                setKRetryPool(pool);
+                setKRetryPos(0);
+                setKPhase("RETRY");
+              }
+            } else {
+              setKAllPos(nextPos);
+            }
+          } else {
+            setKWrongSet(prev => {
+              if (prev.has(currentIndex)) return prev;
+              const n = new Set(prev); n.add(currentIndex); return n;
+            });
+            setMiss({ item: current, mode: Modes.KANJI, kanjiPhase: "ALL" });
+            setStatus("wrong");
+          }
         } else {
-          setStatus("wrong"); setMiss({ item: current, mode: Modes.KANJI });
+          // ターン②
+          if (ok) {
+            const nextPos = kRetryPos + 1;
+            if (nextPos >= kRetryPool.length) {
+              // ターン②完了 → 再びターン①へ
+              setKPhase("ALL");
+              setKAllOrder(shuffle(db.map((_,i)=>i)));
+              setKAllPos(0);
+              setKWrongSet(new Set());
+              setKRetryPool([]);
+              setKRetryPos(0);
+            } else {
+              setKRetryPos(nextPos);
+            }
+          } else {
+            setMiss({ item: current, mode: Modes.KANJI, kanjiPhase: "RETRY" });
+            setStatus("wrong");
+          }
         }
       };
 
@@ -395,14 +454,16 @@
         : mode===Modes.WRITETEST ? Math.round(((Math.min(wtPos+1, wtPool.length))/wtPool.length)*100)
         : mode===Modes.READING && rPhase==="ALL" ? Math.round(((Math.min(rAllPos+1, rAllOrder.length))/rAllOrder.length)*100)
         : mode===Modes.READING && rPhase==="RETRY" ? Math.round(((Math.min(rRetryPos+1, rRetryPool.length))/Math.max(1, rRetryPool.length))*100)
-        : Math.round((streak/total)*100);
+        : mode===Modes.KANJI && kPhase==="ALL" ? Math.round(((Math.min(kAllPos+1, kAllOrder.length))/kAllOrder.length)*100)
+        : mode===Modes.KANJI && kPhase==="RETRY" ? Math.round(((Math.min(kRetryPos+1, kRetryPool.length))/Math.max(1, kRetryPool.length))*100)
+        : 0;
 
-      // ===== モード1 クリア画面（新仕様） =====
+      // ===== モード1 クリア画面 =====
       if (mode===Modes.READING && rCleared) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
             <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
-            <p className="text-lg mb-8">ターン(1)で<b>全問正解</b>できました！</p>
+            <p className="text-lg mb-8">（モード1）ターン①で<b>全問正解</b>できました！</p>
             <button className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" onClick={restartRound}>
               もう一度チャレンジ
             </button>
@@ -410,12 +471,12 @@
         );
       }
 
-      // ===== 既存モード(2)のクリア画面 =====
-      if (cleared && mode===Modes.KANJI) {
+      // ===== モード2 クリア画面 =====
+      if (mode===Modes.KANJI && kCleared) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
             <h1 className="text-5xl font-bold mb-6 animate-bounce">🎉クリア！🎉</h1>
-            <p className="text-lg mb-8">全{total}問を <span className="font-bold">連続正解</span> しました！</p>
+            <p className="text-lg mb-8">（モード2）ターン①で<b>全問正解</b>できました！</p>
             <button className="px-6 py-3 rounded-xl bg-emerald-700 text-white hover:bg-emerald-800" onClick={restartRound}>
               もう一度チャレンジ
             </button>
@@ -529,7 +590,7 @@
                   onChange={(e)=>{ setMode(e.target.value); }}
                 >
                   <option value={Modes.READING}>モード1：漢字→読み（新仕様）</option>
-                  <option value={Modes.KANJI}>モード2：意味→漢字</option>
+                  <option value={Modes.KANJI}>モード2：意味→漢字（新仕様）</option>
                   <option value={Modes.PRACTICE}>モード3：漢字書き取り練習</option>
                   <option value={Modes.WRITETEST}>モード4：漢字書き取りテスト</option>
                 </select>
@@ -554,16 +615,20 @@
                     <span className="px-2 py-1 rounded-full bg-slate-100">
                       {rPhase==="ALL"
                         ? <>問題 {Math.min(rAllPos+1, rAllOrder.length)} / {rAllOrder.length}</>
-                        : <>問題 {Math.min(rRetryPos+1, Math.max(1,rRetryPool.length))} / {Math.max(1,rRetryPool.length)}</>}
+                        : <>問題 {Math.min(rRetryPos+1, Math.max(1,rRetryPool.length))} / {Math.max(1, rRetryPool.length)}</>}
                     </span>
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 ) : mode===Modes.KANJI ? (
                   <>
                     <span className="px-2 py-1 rounded-full bg-slate-100">
-                      問題 {idx+1} / {total}
+                      ターン {kPhase==="ALL" ? "①（全問一巡）" : "②（間違いのみ）"}
                     </span>
-                    <span className="px-2 py-1 rounded-full bg-slate-100">連続正解 {streak}</span>
+                    <span className="px-2 py-1 rounded-full bg-slate-100">
+                      {kPhase==="ALL"
+                        ? <>問題 {Math.min(kAllPos+1, kAllOrder.length)} / {kAllOrder.length}</>
+                        : <>問題 {Math.min(kRetryPos+1, Math.max(1,kRetryPool.length))} / {Math.max(1, kRetryPool.length)}</>}
+                    </span>
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 ) : mode===Modes.WRITETEST ? (
@@ -638,12 +703,12 @@
                       onClick={checkReading} disabled={status==="wrong" && !!miss}>
                       判定（Enter）
                     </button>
-                    {rPhase==="RETRY" && <span className="text-sm text-slate-500 ml-2">ターン(2)：間違えると最初に戻ります</span>}
+                    {rPhase==="RETRY" && <span className="text-sm text-slate-500 ml-2">ターン②：間違えると最初に戻ります</span>}
                   </div>
                 </div>
               )}
 
-              {/* モード2：意味→漢字（従来仕様） */}
+              {/* モード2：意味→漢字（新仕様） */}
               {mode===Modes.KANJI && (
                 <div className="grid gap-4">
                   <div className="text-center">
@@ -669,7 +734,7 @@
                       onClick={checkKanji} disabled={status==="wrong" && !!miss}>
                       判定（Enter）
                     </button>
-                    {status==="correct" && <span className="text-sm text-emerald-600 ml-2">正解！</span>}
+                    {kPhase==="RETRY" && <span className="text-sm text-slate-500 ml-2">ターン②：間違えると最初に戻ります</span>}
                   </div>
                 </div>
               )}
@@ -743,20 +808,20 @@
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
                 <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
                   <div className="text-sm text-slate-500 mb-2">正解は</div>
-                  {miss.mode===Modes.READING ? (
+
+                  {/* モード1の不正解表示・進行 */}
+                  {miss.mode===Modes.READING && (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.reading}</div>
                       <div className="text-base text-slate-600">（漢字：<span className="font-semibold">{miss.item.term}</span>）</div>
-                      {/* ターン(1)と(2)でボタン挙動を変える */}
+
                       <div className="mt-8 flex items-center justify-center gap-3">
                         {miss.readingPhase==="ALL" ? (
                           <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
                             onClick={()=>{
                               setMiss(null); setStatus("idle");
-                              // ターン(1)：次の問題へ
                               const nextPos = rAllPos + 1;
                               if (nextPos >= rAllOrder.length) {
-                                // 終了 → ターン(2)へ
                                 if (rWrongSet.size === 0) {
                                   setRCleared(true);
                                 } else {
@@ -777,32 +842,58 @@
                           <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
                             onClick={()=>{
                               setMiss(null); setStatus("idle");
-                              // ターン(2)：最初に戻る
-                              setRRetryPos(0);
+                              setRRetryPos(0); // ターン②：最初に戻る
                             }}
                             autoFocus
                           >
-                            ターン(2)を最初から
+                            ターン②を最初から
                           </button>
                         )}
                       </div>
                     </div>
-                  ) : (
-                    // モード2（意味→漢字）：読みも表示
+                  )}
+
+                  {/* モード2の不正解表示・進行（読みも表示） */}
+                  {miss && miss.mode===Modes.KANJI && (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.term}</div>
                       <div className="text-base text-slate-600">読み：<span className="font-semibold">{miss.item.reading}</span></div>
                       <div className="text-base text-slate-600">意味：{miss.item.meaning}</div>
+
                       <div className="mt-8 flex items-center justify-center gap-3">
-                        <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
-                          onClick={()=>{
-                            // 既存仕様：最初から（連続正解ルール）
-                            setMiss(null); setStatus("idle"); restartRound();
-                          }}
-                          autoFocus
-                        >
-                          再挑戦（最初から）
-                        </button>
+                        {miss.kanjiPhase==="ALL" ? (
+                          <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                            onClick={()=>{
+                              setMiss(null); setStatus("idle");
+                              const nextPos = kAllPos + 1;
+                              if (nextPos >= kAllOrder.length) {
+                                if (kWrongSet.size === 0) {
+                                  setKCleared(true);
+                                } else {
+                                  const pool = Array.from(kWrongSet);
+                                  setKRetryPool(pool);
+                                  setKRetryPos(0);
+                                  setKPhase("RETRY");
+                                }
+                              } else {
+                                setKAllPos(nextPos);
+                              }
+                            }}
+                            autoFocus
+                          >
+                            次へ
+                          </button>
+                        ) : (
+                          <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90"
+                            onClick={()=>{
+                              setMiss(null); setStatus("idle");
+                              setKRetryPos(0); // ターン②：最初に戻る
+                            }}
+                            autoFocus
+                          >
+                            ターン②を最初から
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
