@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>漢字タイピングGG（GitHub Pages）</title>
+  <title>漢字タイピング2（GitHub Pages）</title>
 
   <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -164,7 +164,7 @@
       const [mode, setMode] = useState(Modes.READING);
       const [db, setDb]   = useState(initialDB);
 
-      // 既存モードの並び
+      // 並び：モード4は上から順、他はシャッフル
       const makeOrder = (m, list) => (m === Modes.WRITETEST ? list.map((_,i)=>i) : shuffle(list.map((_,i)=>i)));
 
       const [order, setOrder] = useState(() => makeOrder(mode, db));
@@ -180,27 +180,27 @@
       // ===== モード4（ラウンド方式）用 =====
       // 現在ラウンドの出題プール（db の絶対 index 配列）
       const [wtPool, setWtPool] = useState(()=> db.map((_,i)=>i));
-      // プール内位置
+      // プール内の位置
       const [wtPos, setWtPos] = useState(0);
-      // このラウンドで答えを表示してしまった（＝間違い）絶対 index 集合
+      // このラウンドで答えを表示した（＝間違い）絶対 index 集合
       const [wtWrong, setWtWrong] = useState(()=>new Set());
       // ラウンド番号（1開始）
       const [wtRound, setWtRound] = useState(1);
       // ラウンド終了フラグ
       const [wtFinished, setWtFinished] = useState(false);
-      // トグル表示
+      // 答えのトグル表示
       const [showAnswerNow, setShowAnswerNow] = useState(false);
 
       const inputRef = useRef(null);
 
-      // DB 変更やモード変更時の初期化
+      // DB or モード変更時の初期化
       useEffect(()=>{ 
         const nextOrder = makeOrder(mode, db);
         setOrder(nextOrder);
         setIdx(0); setInput(""); setStatus("idle"); setStreak(0); setCleared(false); setMiss(null);
 
         if (mode === Modes.WRITETEST) {
-          setWtPool(db.map((_,i)=>i)); // 上から順
+          setWtPool(db.map((_,i)=>i));
           setWtPos(0);
           setWtWrong(new Set());
           setWtRound(1);
@@ -209,7 +209,7 @@
         }
       }, [db, mode]);
 
-      // 現在問題
+      // 現在問題の index & データ
       const currentIndex = mode===Modes.WRITETEST ? wtPool[wtPos] : order[idx];
       const current = useMemo(()=> db[currentIndex], [db, currentIndex]);
       const total = db.length;
@@ -612,7 +612,7 @@
               )}
             </main>
 
-            {/* 既存モード：不正解ダイアログ */}
+            {/* 既存モード：不正解ダイアログ（モード2は読みも表示） */}
             {miss && mode!==Modes.PRACTICE && mode!==Modes.WRITETEST && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
                 <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
@@ -625,7 +625,8 @@
                   ) : (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.term}</div>
-                      <div className="text-base text-slate-600">（意味：{miss.item.meaning}）</div>
+                      <div className="text-base text-slate-600">読み：<span className="font-semibold">{miss.item.reading}</span></div>
+                      <div className="text-base text-slate-600">意味：{miss.item.meaning}</div>
                     </div>
                   )}
                   <div className="mt-8 flex items-center justify-center gap-3">
