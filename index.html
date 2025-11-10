@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>漢字タイピング4（GitHub Pages）</title>
+  <title>漢字タイピング5（GitHub Pages）</title>
 
   <!-- Tailwind / React / Babel -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -43,6 +43,12 @@
         [a[i],a[j]]=[a[j],a[i]];
       }
       return a;
+    };
+
+    const sampleN = (arr, n) => {
+      if (arr.length <= n) return [...arr];
+      const s = shuffle(arr).slice(0, n);
+      return s;
     };
 
     const hiraFromKana = (s) =>
@@ -164,19 +170,33 @@
       const [mode, setMode] = useState(Modes.READING);
       const [db, setDb]   = useState(initialDB);
 
-      // 並び：モード4は上から順、他はシャッフル（※モード1/2はターン毎に別管理）
-      const makeOrder = (m, list) => (m === Modes.WRITETEST ? list.map((_,i)=>i) : shuffle(list.map((_,i)=>i)));
+      // ランダム10問フラグ（デフォルトOFF）。モード3以外で有効。
+      const [limit10, setLimit10] = useState(false);
 
-      const [order, setOrder] = useState(() => makeOrder(mode, db));
+      // activeIndices: 現モード・チェック状態に応じた対象インデックス
+      const buildActiveIndices = (m, list, limit) => {
+        const all = list.map((_,i)=>i);
+        if (m === Modes.PRACTICE) return all; // モード3は常に全件
+        if (!limit) return all;               // チェックなし → 全件
+        // チェックあり → ランダム10問（モード4は並び保持のため昇順ソート）
+        const sampled = sampleN(all, 10);
+        return (m === Modes.WRITETEST) ? sampled.sort((a,b)=>a-b) : sampled;
+      };
+
+      // 並び：モード4は上から順、他はシャッフル（※モード1/2はターン毎別管理）
+      const makeOrder = (m, indices) => (m === Modes.WRITETEST ? [...indices] : shuffle([...indices]));
+
+      // 既存（モード3/初期）用
+      const [order, setOrder] = useState(() => makeOrder(mode, buildActiveIndices(mode, db, limit10)));
       const [idx, setIdx] = useState(0);
 
-      // ===== 既存（モード3/4用） =====
+      // ===== 共通入力/状態 =====
       const [input, setInput] = useState("");
       const [status, setStatus] = useState("idle");
       const [miss, setMiss] = useState(null);
 
       // ===== モード4（ラウンド方式）用 =====
-      const [wtPool, setWtPool] = useState(()=> db.map((_,i)=>i));
+      const [wtPool, setWtPool] = useState(()=> buildActiveIndices(Modes.WRITETEST, db, limit10));
       const [wtPos, setWtPos] = useState(0);
       const [wtWrong, setWtWrong] = useState(()=>new Set());
       const [wtRound, setWtRound] = useState(1);
@@ -185,7 +205,7 @@
 
       // ===== モード1（新仕様）用 =====
       const [rPhase, setRPhase] = useState("ALL"); // "ALL" | "RETRY"
-      const [rAllOrder, setRAllOrder] = useState(()=> shuffle(db.map((_,i)=>i)));
+      const [rAllOrder, setRAllOrder] = useState(()=> makeOrder(Modes.READING, buildActiveIndices(Modes.READING, db, limit10)));
       const [rAllPos, setRAllPos] = useState(0);
       const [rWrongSet, setRWrongSet] = useState(()=> new Set());
       const [rRetryPool, setRRetryPool] = useState([]);
@@ -194,7 +214,7 @@
 
       // ===== モード2（新仕様）用 =====
       const [kPhase, setKPhase] = useState("ALL"); // "ALL" | "RETRY"
-      const [kAllOrder, setKAllOrder] = useState(()=> shuffle(db.map((_,i)=>i)));
+      const [kAllOrder, setKAllOrder] = useState(()=> makeOrder(Modes.KANJI, buildActiveIndices(Modes.KANJI, db, limit10)));
       const [kAllPos, setKAllPos] = useState(0);
       const [kWrongSet, setKWrongSet] = useState(()=> new Set());
       const [kRetryPool, setKRetryPool] = useState([]);
@@ -203,46 +223,45 @@
 
       const inputRef = useRef(null);
 
-      // DB or モード変更時の初期化
+      // モード / DB / ランダム10の変更時に、各モードごとに初期化
       useEffect(()=>{ 
-        const nextOrder = makeOrder(mode, db);
-        setOrder(nextOrder);
+        // 共通
         setIdx(0); setInput(""); setStatus("idle"); setMiss(null);
 
-        // モード4初期化
+        const active = buildActiveIndices(mode, db, limit10);
+
+        // モードごとの初期化
         if (mode === Modes.WRITETEST) {
-          setWtPool(db.map((_,i)=>i));
+          setWtPool(active);
           setWtPos(0);
           setWtWrong(new Set());
           setWtRound(1);
           setWtFinished(false);
           setShowAnswerNow(false);
-        }
-
-        // モード1初期化
-        if (mode === Modes.READING) {
+        } else if (mode === Modes.READING) {
           setRPhase("ALL");
-          setRAllOrder(shuffle(db.map((_,i)=>i)));
+          setRAllOrder(makeOrder(Modes.READING, active));
           setRAllPos(0);
           setRWrongSet(new Set());
           setRRetryPool([]);
           setRRetryPos(0);
           setRCleared(false);
-        }
-
-        // モード2初期化
-        if (mode === Modes.KANJI) {
+        } else if (mode === Modes.KANJI) {
           setKPhase("ALL");
-          setKAllOrder(shuffle(db.map((_,i)=>i)));
+          setKAllOrder(makeOrder(Modes.KANJI, active));
           setKAllPos(0);
           setKWrongSet(new Set());
           setKRetryPool([]);
           setKRetryPos(0);
           setKCleared(false);
+        } else {
+          // PRACTICE
+          setOrder(makeOrder(Modes.PRACTICE, active));
+          setIdx(0);
         }
-      }, [db, mode]);
+      }, [db, mode, limit10]);
 
-      // 現在問題の index
+      // 現在問題 index
       const currentIndex =
         mode===Modes.WRITETEST ? wtPool[wtPos] :
         mode===Modes.READING && rPhase==="ALL" ? rAllOrder[rAllPos] :
@@ -252,11 +271,16 @@
         order[idx];
 
       const current = useMemo(()=> db[currentIndex], [db, currentIndex]);
-      const total = db.length;
 
-      // === モード3（練習）/ その他の移動 ===
-      const goNextNormal = () => setIdx(v => v+1>=order.length ? 0 : v+1);
-      const goPrevNormal = () => setIdx(v => v-1<0 ? order.length-1 : v-1);
+      // 対象件数（「各回の最大の問題数」またはランダム10問）
+      const activeCount = useMemo(()=>{
+        if (mode===Modes.PRACTICE) return db.length;
+        const active = buildActiveIndices(mode, db, limit10);
+        return active.length;
+      }, [db, mode, limit10]);
+
+      // === モード3（練習）移動 ===
+      const goNextNormal = () => setIdx(v => v+1>=activeCount ? 0 : v+1);
 
       // === モード4の移動 ===
       const goNextWT = () => {
@@ -272,38 +296,24 @@
       useEffect(()=>{ 
         setInput(""); setStatus("idle");
         if(mode!==Modes.PRACTICE) inputRef.current?.focus();
-      }, [idx, wtPos, mode, rAllPos, rRetryPos, rPhase, kAllPos, kRetryPos, kPhase]);
+      }, [wtPos, rAllPos, rRetryPos, rPhase, kAllPos, kRetryPos, kPhase, mode, idx]);
 
       const restartRound = () => {
-        const nextOrder = makeOrder(mode, db);
-        setOrder(nextOrder);
-        setIdx(0); setInput(""); setStatus("idle"); setMiss(null);
+        setInput(""); setStatus("idle"); setMiss(null);
 
-        // モード4リセット
-        setWtPool(db.map((_,i)=>i));
-        setWtPos(0);
-        setWtWrong(new Set());
-        setWtRound(1);
-        setWtFinished(false);
-        setShowAnswerNow(false);
+        const active = buildActiveIndices(mode, db, limit10);
 
-        // モード1リセット
-        setRPhase("ALL");
-        setRAllOrder(shuffle(db.map((_,i)=>i)));
-        setRAllPos(0);
-        setRWrongSet(new Set());
-        setRRetryPool([]);
-        setRRetryPos(0);
-        setRCleared(false);
-
-        // モード2リセット
-        setKPhase("ALL");
-        setKAllOrder(shuffle(db.map((_,i)=>i)));
-        setKAllPos(0);
-        setKWrongSet(new Set());
-        setKRetryPool([]);
-        setKRetryPos(0);
-        setKCleared(false);
+        if (mode===Modes.WRITETEST) {
+          setWtPool(active); setWtPos(0); setWtWrong(new Set()); setWtRound(1); setWtFinished(false); setShowAnswerNow(false);
+        } else if (mode===Modes.READING) {
+          setRPhase("ALL"); setRAllOrder(makeOrder(Modes.READING, active)); setRAllPos(0);
+          setRWrongSet(new Set()); setRRetryPool([]); setRRetryPos(0); setRCleared(false);
+        } else if (mode===Modes.KANJI) {
+          setKPhase("ALL"); setKAllOrder(makeOrder(Modes.KANJI, active)); setKAllPos(0);
+          setKWrongSet(new Set()); setKRetryPool([]); setKRetryPos(0); setKCleared(false);
+        } else {
+          setOrder(makeOrder(Modes.PRACTICE, active)); setIdx(0);
+        }
 
         if(mode!==Modes.PRACTICE) inputRef.current?.focus();
       };
@@ -342,9 +352,10 @@
           if (ok) {
             const nextPos = rRetryPos + 1;
             if (nextPos >= rRetryPool.length) {
-              // ターン②完了 → 再びターン①へ
+              // ターン②完了 → 再びターン①へ（対象は現在のlimit10設定に従う）
+              const active = buildActiveIndices(Modes.READING, db, limit10);
               setRPhase("ALL");
-              setRAllOrder(shuffle(db.map((_,i)=>i)));
+              setRAllOrder(makeOrder(Modes.READING, active));
               setRAllPos(0);
               setRWrongSet(new Set());
               setRRetryPool([]);
@@ -359,7 +370,7 @@
         }
       };
 
-      // モード2（意味→漢字）— 新仕様
+      // モード2（意味→漢字）
       const checkKanji = () => {
         const user = normalizeAnswer(input, Modes.KANJI);
         const ok = user === normalizeAnswer(current.term, Modes.KANJI);
@@ -392,9 +403,10 @@
           if (ok) {
             const nextPos = kRetryPos + 1;
             if (nextPos >= kRetryPool.length) {
-              // ターン②完了 → 再びターン①へ
+              // ターン②完了 → 再びターン①へ（対象は現在のlimit10設定に従う）
+              const active = buildActiveIndices(Modes.KANJI, db, limit10);
               setKPhase("ALL");
-              setKAllOrder(shuffle(db.map((_,i)=>i)));
+              setKAllOrder(makeOrder(Modes.KANJI, active));
               setKAllPos(0);
               setKWrongSet(new Set());
               setKRetryPool([]);
@@ -448,17 +460,17 @@
         }
       };
 
-      // 進捗表示
+      // 進捗表示（アクティブ件数に基づく）
       const progress =
-        mode===Modes.PRACTICE ? Math.round(((idx+1)/total)*100)
-        : mode===Modes.WRITETEST ? Math.round(((Math.min(wtPos+1, wtPool.length))/wtPool.length)*100)
-        : mode===Modes.READING && rPhase==="ALL" ? Math.round(((Math.min(rAllPos+1, rAllOrder.length))/rAllOrder.length)*100)
+        mode===Modes.PRACTICE ? Math.round(((Math.min(idx+1, activeCount))/Math.max(1, activeCount))*100)
+        : mode===Modes.WRITETEST ? Math.round(((Math.min(wtPos+1, wtPool.length))/Math.max(1, wtPool.length))*100)
+        : mode===Modes.READING && rPhase==="ALL" ? Math.round(((Math.min(rAllPos+1, rAllOrder.length))/Math.max(1, rAllOrder.length))*100)
         : mode===Modes.READING && rPhase==="RETRY" ? Math.round(((Math.min(rRetryPos+1, rRetryPool.length))/Math.max(1, rRetryPool.length))*100)
-        : mode===Modes.KANJI && kPhase==="ALL" ? Math.round(((Math.min(kAllPos+1, kAllOrder.length))/kAllOrder.length)*100)
+        : mode===Modes.KANJI && kPhase==="ALL" ? Math.round(((Math.min(kAllPos+1, kAllOrder.length))/Math.max(1, kAllOrder.length))*100)
         : mode===Modes.KANJI && kPhase==="RETRY" ? Math.round(((Math.min(kRetryPos+1, kRetryPool.length))/Math.max(1, kRetryPool.length))*100)
         : 0;
 
-      // ===== モード1 クリア画面 =====
+      // ===== クリア画面（モード1） =====
       if (mode===Modes.READING && rCleared) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
@@ -471,7 +483,7 @@
         );
       }
 
-      // ===== モード2 クリア画面 =====
+      // ===== クリア画面（モード2） =====
       if (mode===Modes.KANJI && kCleared) {
         return (
           <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-50 text-emerald-800">
@@ -503,13 +515,14 @@
               <div className="mt-8 flex gap-3">
                 <button className="px-5 py-3 rounded-xl bg-slate-900 text-white" onClick={restartRound}>最初から</button>
                 <button className="px-5 py-3 rounded-xl border bg-white" onClick={()=>{
-                  setWtPool(db.map((_,i)=>i));
+                  const active = buildActiveIndices(Modes.WRITETEST, db, limit10);
+                  setWtPool(active);
                   setWtPos(0);
                   setWtWrong(new Set());
                   setWtRound(1);
                   setWtFinished(false);
                   setShowAnswerNow(false);
-                }}>同じ範囲でもう一度</button>
+                }}>同じ条件でもう一度</button>
               </div>
             </div>
           );
@@ -576,13 +589,13 @@
         );
       }
 
-      // ===== 通常画面（各モード） =====
+      // ===== ヘッダー／操作行 =====
       return (
         <div className="relative min-h-screen bg-slate-50 text-slate-900 p-6">
           <div className="max-w-4xl mx-auto grid gap-6">
             <header className="flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-2xl md:text-3xl font-bold">漢字タイピング</h1>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <select
                   aria-label="モード選択"
                   className="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"
@@ -594,6 +607,20 @@
                   <option value={Modes.PRACTICE}>モード3：漢字書き取り練習</option>
                   <option value={Modes.WRITETEST}>モード4：漢字書き取りテスト</option>
                 </select>
+
+                {/* モード3以外に表示するランダム10問チェック */}
+                {mode!==Modes.PRACTICE && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={limit10}
+                      onChange={(e)=> setLimit10(e.target.checked)}
+                    />
+                    <span>ランダム10問</span>
+                  </label>
+                )}
+
                 <button className="px-3 py-2 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={restartRound}>
                   リセット
                 </button>
@@ -617,6 +644,7 @@
                         ? <>問題 {Math.min(rAllPos+1, rAllOrder.length)} / {rAllOrder.length}</>
                         : <>問題 {Math.min(rRetryPos+1, Math.max(1,rRetryPool.length))} / {Math.max(1, rRetryPool.length)}</>}
                     </span>
+                    {limit10 && <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">ランダム10問</span>}
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 ) : mode===Modes.KANJI ? (
@@ -629,6 +657,7 @@
                         ? <>問題 {Math.min(kAllPos+1, kAllOrder.length)} / {kAllOrder.length}</>
                         : <>問題 {Math.min(kRetryPos+1, Math.max(1,kRetryPool.length))} / {Math.max(1, kRetryPool.length)}</>}
                     </span>
+                    {limit10 && <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">ランダム10問</span>}
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 ) : mode===Modes.WRITETEST ? (
@@ -637,24 +666,25 @@
                     <span className="px-2 py-1 rounded-full bg-slate-100">
                       問題 {Math.min(wtPos+1, wtPool.length)} / {wtPool.length}
                     </span>
+                    {limit10 && <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">ランダム10問</span>}
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 ) : (
                   <>
                     <span className="px-2 py-1 rounded-full bg-slate-100">
-                      表示 {idx+1} / {total}
+                      表示 {Math.min(idx+1, activeCount)} / {activeCount}
                     </span>
                     <span className="ml-auto px-2 py-1 rounded-full bg-slate-900 text-white">進捗 {progress}%</span>
                   </>
                 )}
               </div>
               <div className="mt-3 text-xs text-slate-500">
-                使用中データ：{sel.join(", ")}
+                使用中データ：{sel.join(", ")}（対象：{activeCount}件）
               </div>
             </div>
 
             <main className="rounded-2xl border bg-white p-6 shadow-sm">
-              {/* モード3：練習 */}
+              {/* モード3：練習（チェック対象外・全件） */}
               {mode===Modes.PRACTICE && (
                 <div className="grid gap-6 text-center">
                   <div>
@@ -670,14 +700,14 @@
                     <div className="text-2xl md:text-3xl font-semibold leading-relaxed">{current.meaning}</div>
                   </div>
                   <div className="mt-4 flex items-center justify-center gap-3">
-                    <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={()=>setIdx(v => v+1>=order.length ? 0 : v+1)}>
+                    <button className="px-6 py-3 rounded-xl bg-slate-900 text-white hover:opacity-90" onClick={goNextNormal}>
                       次へ（Space / → / Enter）
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* モード1：漢字→読み（新仕様） */}
+              {/* モード1：漢字→読み（新仕様・ランダム10対応） */}
               {mode===Modes.READING && (
                 <div className="grid gap-4">
                   <div className="text-center">
@@ -689,7 +719,7 @@
                     <input
                       ref={inputRef} type="text" value={input}
                       onChange={(e)=>setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
+                      onKeyDown={(e)=>{ if (e.key==="Enter"){ e.preventDefault(); checkReading(); } }}
                       disabled={status==="wrong" && !!miss}
                       className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
                         status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
@@ -708,7 +738,7 @@
                 </div>
               )}
 
-              {/* モード2：意味→漢字（新仕様） */}
+              {/* モード2：意味→漢字（新仕様・ランダム10対応） */}
               {mode===Modes.KANJI && (
                 <div className="grid gap-4">
                   <div className="text-center">
@@ -720,7 +750,7 @@
                     <input
                       ref={inputRef} type="text" value={input}
                       onChange={(e)=>setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
+                      onKeyDown={(e)=>{ if (e.key==="Enter"){ e.preventDefault(); checkKanji(); } }}
                       disabled={status==="wrong" && !!miss}
                       className={`px-4 py-3 rounded-xl border focus:outline-none focus:ring-4 transition ${
                         status==="wrong" ? "border-red-400 ring-red-100" : "border-slate-300 focus:ring-slate-100"
@@ -739,7 +769,7 @@
                 </div>
               )}
 
-              {/* モード4：漢字書き取りテスト（ラウンド方式） */}
+              {/* モード4：漢字書き取りテスト（トグル・ランダム10対応） */}
               {mode===Modes.WRITETEST && !wtFinished && (
                 <div className="grid gap-6">
                   <div className="grid gap-1 text-center">
@@ -809,7 +839,7 @@
                 <div className="max-w-2xl w-full rounded-2xl bg-white shadow-xl p-8 text-center">
                   <div className="text-sm text-slate-500 mb-2">正解は</div>
 
-                  {/* モード1の不正解表示・進行 */}
+                  {/* モード1 */}
                   {miss.mode===Modes.READING && (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.reading}</div>
@@ -853,7 +883,7 @@
                     </div>
                   )}
 
-                  {/* モード2の不正解表示・進行（読みも表示） */}
+                  {/* モード2（読みも表示） */}
                   {miss && miss.mode===Modes.KANJI && (
                     <div>
                       <div className="text-5xl md:text-6xl font-extrabold tracking-wide mb-3">{miss.item.term}</div>
